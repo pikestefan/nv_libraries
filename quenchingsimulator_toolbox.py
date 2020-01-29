@@ -77,8 +77,9 @@ Bvec is (Bfield_num,3)-shaped array
 """
 
 def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
-                              nv_theta = 54.7, nv_phi = 0, rate_coeff = 1e-3,
-                              Bias_field = None,correct_for_crossing = False,
+                              nv_theta = 54.7*np.pi/180, nv_phi = 0,
+                              rate_coeff = 1e-3, Bias_field = None,
+                              correct_for_crossing = False,
                               ):
     """
     
