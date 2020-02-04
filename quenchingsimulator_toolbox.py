@@ -160,7 +160,8 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
     #levels = np.zeros( (len(bnorm),3) ) Use it to store one level coefficients
     solution_vector = np.zeros( (rate_rows,) )
     solution_vector[0] = 1
-    solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis], bfield_num, axis = 0)
+    solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis],
+                                bfield_num, axis = 0)
     steady_states = np.zeros( (bfield_num, rate_rows) )
     
     if (Bias_field is None):
@@ -168,23 +169,28 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
     elif (linalg.norm(Bias_field) == 0):
         Bias_field = 0
     Bfields = Bfields + Bias_field
-    Bfields = rotate2nvframev_fast(vectors2transform = Bfields[:,:,np.newaxis], nv_theta = nv_theta, nv_phi = nv_phi)
+    Bfields = rotate2nvframev_fast(vectors2transform = Bfields[:,:,np.newaxis],
+                                   nv_theta = nv_theta, nv_phi = nv_phi)
 
     norm_is_zero = (linalg.norm(Bfields, axis = 1) == 0)
 
     #Calculate the B field dependence
     full_Htot_gs = Htot_gs_fast(Bfields)
     full_Htot_es = Htot_es_fast(Bfields)
-    coefficient_matrix = find_eigens_and_compose_fast(Htot_gs = full_Htot_gs, Htot_es=full_Htot_es,
+    coefficient_matrix = find_eigens_and_compose_fast(Htot_gs = full_Htot_gs,
+                                                      Htot_es=full_Htot_es,
                                                       correct_for_crossing = correct_for_crossing)
     coefficient_matrix[norm_is_zero,:,:] = np.eye(rate_rows)
     
     
     new_rates = np.matmul(np.square( np.abs(coefficient_matrix) ),
                                      np.matmul(zero_rates,
-                                               np.square( np.abs(np.transpose(coefficient_matrix, axes = [0,2,1])) )
+                                               np.square( np.abs(np.transpose(
+                                                   coefficient_matrix, axes = [0,2,1])
+                                                                 )
+                                                        )
                                                )
-                                      )
+                         )
 
     rate_equation_matrix = generate_rate_eq_fast(new_rates)
     steady_states = linalg.solve(rate_equation_matrix, solution_vector)[:,:,0]
