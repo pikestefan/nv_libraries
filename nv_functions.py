@@ -798,6 +798,20 @@ def Bfield_fromM(Mx = None, My = None, Mz = None, X_array = None, Y_array = None
     Bz=sci_sig.convolve2d(kerXY,dxMx)+sci_sig.convolve2d(kerXY,dyMy)+sci_sig.convolve2d(kerXY,ddMz)
     B=np.array([Bx,By,Bz])
     return B
+
+def correlate2dwrapper(mat1, mat2, *args, **kwargs):
+    """
+    A function that corrects mat1 and mat2 by subtracting their respective means
+    and normalising them by their standard deviation, before calling correlated2d.
+    The result is normalised by max(mat1.shape[0],mat2.shape[0]) * 
+    max(mat1.shape[1],mat2.shape[1]). *args and **kwargs are passed to correlate2d.
+    """
+    
+    mat1 = (mat1 - mat1.mean()) / mat1.std()
+    mat2 = (mat2 - mat2.mean()) / mat2.std()
+    correlated = sci_sig.correlate2d(mat1, mat2, *args, **kwargs) / ( max(mat1.shape[0],mat2.shape[0]) * 
+                                                                     max(mat1.shape[1],mat2.shape[1]) )
+    return correlated
                           
 if __name__ == "__main__"   :
     #Code testing section!
