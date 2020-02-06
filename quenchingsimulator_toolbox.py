@@ -89,29 +89,31 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
     Inputs:
         Bfields: array with shape (3,) or (N1,...N2,3)
         rate_dictionary: a dictionary with the decay rates, including pump rate
-                         and mw_pump rate
-        nv_theta: the NV azimuthal angle in the lab frame
-        nv_phi: the NV equatorial angle in the lab frame
+                         and mw_pump rate.
+        nv_theta: the NV azimuthal angle in the lab frame. It can be either a 
+                  scalar value or a numpy array.
+        nv_phi: the NV equatorial angle in the lab frame. It can be either a 
+                scalar or a numpy array.
         rate_coeff: the coefficient which simulates the collection efficiency
         Bias_field: a (3,)-shaped array which represent a Bias field in the lab
-                    frame
+                    frame.
     Returns:
-        pl_rate_out: array with the same shape as Bfields up to the second to 
-                     last axis. It contains the 
-                     not-normalised PL of the NV.
-        steady_states_out: a array shape Bfields.shape[0:-1] + (7,). E.g., if
+        pl_rate_out: ndarray containing the PL of the NV (in MHz). If nv_theta
+                     and nv_phi a scalars, it has shape Bfields.shape[0:-1].
+                     If one of the two angles is an array, the output shape is
+                     angle.shape + Bfields.shape[0:-1]. If both angles are arrays,
+                     the output shape is nv_theta.shape + nv_phi.shape + Bfields.shape[0:-1]
+        steady_states_out: ndarray containing the steady states populations, normalised
+                           to sum(n_i, i = {0,6}) = 1.
+                           It has shape Bfields.shape[0:-1] + (7,). E.g., if
                            Bfields.shape = (10,20,3) -> steady_states_out.shape
-                           = (10,20,7). It contains the steady states populations,
-                           normalised to sum(n_i, i = {0,6}) = 1
-                           
-    A quenching calculator under steroids. All the functions and arrays are vectorised
-    to N-dimensional matrices to take full advantage of the numpy functions speed.
-    Rough benchmarking shows speedups from 5x to 10x compared to quenching_calculator.
-        
+                           = (10,20,7). If either nv_theta and nv_phi or both 
+                           are arrays, it new dimensions are added as described
+                           for pl_rate_out.
     """
-    
+    #All units are MHz
     default_rate_dictionary = {'kr' : 32.2,          # The radiative decay rate
-                               'k36' : 12.6,          # Non-radiative to shelving, ms=0
+                               'k36' : 12.6,         # Non-radiative to shelving, ms=0
                                'k45_6' : 80.7,       # Non-radiative to shelving, ms=+-1
                                'k60' : 3.1,          # Non-radiative from shelving to ms=0
                                'k6_12' : 2.5,        # Non-radiative from shelving to ms=+-1
@@ -122,6 +124,14 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
         for key, value in rate_dictionary.items():
             if key in default_rate_dictionary:
                 default_rate_dictionary[key] = value
+                
+    kr = default_rate_dictionary['kr']
+    k36 = default_rate_dictionary['k36']
+    k45_6 = default_rate_dictionary['k45_6']
+    k60 = default_rate_dictionary['k60']
+    k6_12 =default_rate_dictionary['k6_12']
+    mw_rate = default_rate_dictionary['mw_rate']
+    laser_pump = default_rate_dictionary['laser_pump']
     
     input_shape = Bfields.shape
     if input_shape == (3,):
@@ -132,16 +142,23 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
         bfield_num = np.prod( input_shape[:-1] )
         Bfields = np.reshape(Bfields, (bfield_num,3))
         
+    if (Bias_field is None) or (linalg.norm(Bias_field) == 0):
+        Bias_field = 0
+        
+    Bfields = Bfields + Bias_field
+    init_shape = Bfields.shape
     
-    kr = default_rate_dictionary['kr']
-    k36 = default_rate_dictionary['k36']
-    k45_6 = default_rate_dictionary['k45_6']
-    k60 = default_rate_dictionary['k60']
-    k6_12 =default_rate_dictionary['k6_12']
-    mw_rate = default_rate_dictionary['mw_rate']
-    laser_pump = default_rate_dictionary['laser_pump']
-
-    
+    Bfields = rotate2nvframev_fast(vectors2transform = Bfields,
+                                   nv_theta = nv_theta, nv_phi = nv_phi)
+    if Bfields.shape != init_shape:
+        #This means that an array of phi or thetas was requested.
+        #Reshape again the Bfields, with the goal of obtaining a
+        # ( (len(theta), ) + (len(phi),), input_shape +  )-shaped matrix
+        input_shape = Bfields.shape[:-2] + input_shape
+        
+        Bfields = np.reshape( Bfields, ( np.prod(Bfields.shape[:-1]), 3 ) )
+        bfield_num = Bfields.shape[0]
+        
     #The unperturbed decay rates
     zero_rates = zeroB_decay_mat(kr ,kr , kr,
                                  k36, k45_6, k45_6,
@@ -163,14 +180,6 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
     solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis],
                                 bfield_num, axis = 0)
     steady_states = np.zeros( (bfield_num, rate_rows) )
-    
-    if (Bias_field is None):
-        Bias_field = 0
-    elif (linalg.norm(Bias_field) == 0):
-        Bias_field = 0
-    Bfields = Bfields + Bias_field
-    Bfields = rotate2nvframev_fast(vectors2transform = Bfields[:,:,np.newaxis],
-                                   nv_theta = nv_theta, nv_phi = nv_phi)
 
     norm_is_zero = (linalg.norm(Bfields, axis = 1) == 0)
 
@@ -206,6 +215,7 @@ def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
     
     return pl_rate_out, steady_states_out
 
+
 def quenching_calculator(Bfields = None, rate_dictionary = None, 
                          nv_theta = 55.6, nv_phi = 0, rate_coeff = 1e-3,
                          Bias_field = None):
@@ -217,8 +227,8 @@ def quenching_calculator(Bfields = None, rate_dictionary = None,
         Bfields: array with shape (3,) or (N1,...N2,3)
         rate_dictionary: a dictionary with the decay rates, including pump rate
                          and mw_pump rate
-        nv_theta: the NV azimuthal angle in the lab frame
-        nv_phi: the NV equatorial angle in the lab frame
+        nv_theta: the NV azimuthal angle in the lab frame. 
+        nv_phi: the NV equatorial angle in the lab frame.
         rate_coeff: the coefficient which simulates the collection efficiency
         Bias_field: a (3,)-shaped array which represent a Bias field in the lab
                     frame
@@ -416,7 +426,8 @@ def find_eigens_and_compose_fast(Htot_gs = None, Htot_es = None,
     
     if correct_for_crossing:
         
-        GS_ground_state_coeff_pos = np.argmax(np.square(np.abs( eistates_gs[:,1,:] )),axis = 1)
+        GS_ground_state_coeff_pos = np.argmax(np.square(np.abs( eistates_gs[:,1,:] )),
+                                              axis = 1)
         sub = eistates_gs[GS_ground_state_coeff_pos>0,:,:]
         sub[:,:,[0,1]] = sub[:,:,[1,0]]
         eistates_gs[GS_ground_state_coeff_pos>0,:,:] = sub
@@ -460,20 +471,70 @@ def rotate2nvframe(vector2transform = np.array([0,0,0]), nv_theta = 0, nv_phi = 
     return np.matmul( np.matmul(rot_aboutx, rot_aboutz),  vector2transform)
 
 
-def rotate2nvframev_fast(vectors2transform = np.zeros((2,3,1)), nv_theta = 0, nv_phi = 0):
+def rotate2nvframev_fast(vectors2transform = np.zeros((2,3)), nv_theta = 0, nv_phi = 0):
+    """
+    Rot matrix is the product of a rotation about z followed by a rotation about x.
+    If both theta and phi are scalars, it returns an array with the same shape.
+    Otherwise, it outputs an array with 
+    """
     reps = vectors2transform.shape[0]
     
-    #Rot matrix is the product of a rotation about z followed by
-    #a rotation about x
-    rot_matrix = np.array([ [cos(nv_phi)*cos(nv_theta), sin(nv_phi)*cos(nv_theta), -sin(nv_theta)],
-                            [-sin(nv_phi), cos(nv_phi), 0],
-                             [sin(nv_theta)*cos(nv_phi), sin(nv_phi)*sin(nv_theta), cos(nv_theta)] ] )
+    #I distinguish between the case of two scalar angles and the rest to keep
+    #computation speed at its max. If they are not arrays, I avoid extra matrix
+    #operations, e.g. the use of np.cos (slower than cos) and np.einsum.
+    if ( type(nv_theta) is not np.ndarray ) and ( type(nv_phi) is not np.ndarray ):
+        rot_matrix = np.array([ [cos(nv_phi)*cos(nv_theta),
+                                 sin(nv_phi)*cos(nv_theta),
+                                 -sin(nv_theta)],
+                                [-sin(nv_phi),
+                                 cos(nv_phi),
+                                 0],
+                                [sin(nv_theta)*cos(nv_phi),
+                                 sin(nv_phi)*sin(nv_theta),
+                                 cos(nv_theta)]
+                                ] )
+        rot_matrix = np.repeat(rot_matrix[np.newaxis,:,:],reps,axis = 0)
+        result = np.matmul( rot_matrix,  vectors2transform[:,:,None] )
+        result = result[:,:,0]
+        
+    else:
     
-    rot_matrix = np.repeat(rot_matrix[np.newaxis,:,:],reps,axis = 0)
-    
-    result = np.matmul( rot_matrix,  vectors2transform )
-    
-    return result[:,:,0]
+        if type(nv_theta) is not np.ndarray:
+            nv_theta = np.array([nv_theta])
+            thetascalar = True
+        else:
+            thetascalar = False
+            
+        if type(nv_phi) is not np.ndarray:
+            nv_phi = np.array([nv_phi])
+            phiscalar = True
+        else:
+            phiscalar = False
+            
+            
+        rot_matrix = np.array([
+                        [np.cos(nv_phi[None,:]) * np.cos(nv_theta[:,None]),
+                         np.sin(nv_phi[None,:]) * np.cos(nv_theta[:,None]),
+                         -np.sin(nv_theta[:,None]) * np.ones((1,) + nv_phi.shape)],
+
+                        [-np.sin(nv_phi[None,:]) * np.ones( nv_theta.shape + (1,) ),
+                          np.cos(nv_phi[None,:]) * np.ones( nv_theta.shape + (1,) ),
+                          np.zeros(nv_theta.shape + nv_phi.shape)],
+                        
+                        [np.sin(nv_theta[:,None])*np.cos(nv_phi[None,:]), 
+                         np.sin(nv_phi[None,:])*np.sin(nv_theta[:,None]),
+                         np.cos(nv_theta[:,None]) * np.ones((1,) + nv_phi.shape)]
+                      ] )
+        result = np.einsum("nojk,mo->jkmn", rot_matrix, vectors2transform)
+        
+        if phiscalar and not thetascalar:
+            result = result[:,0]
+        if thetascalar and not phiscalar:
+            result = result[0,:]
+        
+    return result
+
+
 
 if __name__ == '__main__':
     
