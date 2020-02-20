@@ -76,40 +76,45 @@ def Htot_es_fast(Bvec):
 Bvec is (Bfield_num,3)-shaped array
 """
 
-def quenching_calculator_fast(Bfields = None, rate_dictionary = None,
+def quenching_calculator_fast(Bfields, rate_dictionary = None,
                               nv_theta = 54.7*np.pi/180, nv_phi = 0,
                               rate_coeff = 1e-3, Bias_field = None,
                               correct_for_crossing = False,
                               ):
     """
-    
     Calculates the pl rate of an nv and the steady state populations.
     Rate_dictionary contains: {'kr','k36',k45_6','k60','k6_12','mw_rate','laser_pump'}
     
-    Inputs:
-        Bfields: array with shape (3,) or (N1,...N2,3)
-        rate_dictionary: a dictionary with the decay rates, including pump rate
-                         and mw_pump rate.
-        nv_theta: the NV azimuthal angle in the lab frame. It can be either a 
-                  scalar value or a numpy array.
-        nv_phi: the NV equatorial angle in the lab frame. It can be either a 
-                scalar or a numpy array.
-        rate_coeff: the coefficient which simulates the collection efficiency
-        Bias_field: a (3,)-shaped array which represent a Bias field in the lab
-                    frame.
-    Returns:
-        pl_rate_out: ndarray containing the PL of the NV (in MHz). If nv_theta
-                     and nv_phi a scalars, it has shape Bfields.shape[0:-1].
-                     If one of the two angles is an array, the output shape is
-                     angle.shape + Bfields.shape[0:-1]. If both angles are arrays,
-                     the output shape is nv_theta.shape + nv_phi.shape + Bfields.shape[0:-1]
-        steady_states_out: ndarray containing the steady states populations, normalised
-                           to sum(n_i, i = {0,6}) = 1.
-                           It has shape Bfields.shape[0:-1] + (7,). E.g., if
-                           Bfields.shape = (10,20,3) -> steady_states_out.shape
-                           = (10,20,7). If either nv_theta and nv_phi or both 
-                           are arrays, it new dimensions are added as described
-                           for pl_rate_out.
+    Parameters
+    ----------
+    Bfields: np.ndarray
+        array with shape (3,) or (N1,...N2,3)
+    rate_dictionary: dictionary
+        A dictionary with the decay rates, including pump rate and mw_pump rate.
+    nv_theta: float or array_like, optional
+        The NV azimuthal angle in the lab frame. It can be either a scalar value
+        or a one-dimensional numpy array. Default is ~0.955 rad (54.7 deg).
+    nv_phi: float or array_like, optional
+        The NV equatorial angle in the lab frame. It can be either a scalar or 
+        a numpy array. Default is 0.
+    rate_coeff: float
+        The coefficient which simulates the collection efficiency.
+    Bias_field: np.array
+        A (3,)-shaped array which represent a Bias field in the lab frame.
+    Returns
+    -------
+    pl_rate_out: np.ndarray
+        Matrix containing the PL of the NV (in MHz). If nv_theta and nv_phi are
+        scalars, it has shape Bfields.shape[0:-1]. If one of the two angles is
+        an array, the output shape is angle.shape + Bfields.shape[0:-1].
+        If both angles are arrays, the output shape is nv_theta.shape + 
+        nv_phi.shape + Bfields.shape[0:-1].
+    steady_states_out: np.ndarray
+        Array containing the steady states populations, normalised to
+        sum(n_i, i = {0,6}) = 1. It has shape Bfields.shape[0:-1] + (7,).
+        E.g., if Bfields.shape = (10,20,3) -> steady_states_out.shape = (10,20,7).
+        If either nv_theta and nv_phi or both are arrays, it new dimensions are
+        added as described for pl_rate_out.
     """
     #All units are MHz
     default_rate_dictionary = {'kr' : 32.2,          # The radiative decay rate
@@ -471,11 +476,30 @@ def rotate2nvframe(vector2transform = np.array([0,0,0]), nv_theta = 0, nv_phi = 
     return np.matmul( np.matmul(rot_aboutx, rot_aboutz),  vector2transform)
 
 
-def rotate2nvframev_fast(vectors2transform = np.zeros((2,3)), nv_theta = 0, nv_phi = 0):
+def rotate2nvframev_fast(vectors2transform, nv_theta = 0, nv_phi = 0):
     """
     Rot matrix is the product of a rotation about z followed by a rotation about x.
     If both theta and phi are scalars, it returns an array with the same shape.
-    Otherwise, it outputs an array with 
+    
+    Parameters
+    ----------
+    vectors2transform: np.ndarray
+        Array with shape (N, 3), representing N 3D vectors which are going to be
+        rotated in the NV reference frame.
+    nv_theta: float or array_like
+        NV azimuthal angle. It can be either a float or a 1D array of angles.
+        Default is 0.
+    nv_phi: float or array_like
+        NV equatorial angle. It can be either a float or a 1D array of angles.
+        Default is 0.
+    
+    Returns
+    -------
+    rotated: np.ndarray
+        The rotated vectors. It both theta and phi are scalars, it has the original
+        shape. Otherwise, if one of them is a np.array, the output shape is
+        angle.shape + vectors2transform.shape. If both are arrays, then the
+        output matrix is nv_theta.shape + nv_phi.shape + vectors2transform.shape.
     """
     reps = vectors2transform.shape[0]
     
@@ -494,8 +518,8 @@ def rotate2nvframev_fast(vectors2transform = np.zeros((2,3)), nv_theta = 0, nv_p
                                  cos(nv_theta)]
                                 ] )
         rot_matrix = np.repeat(rot_matrix[np.newaxis,:,:],reps,axis = 0)
-        result = np.matmul( rot_matrix,  vectors2transform[:,:,None] )
-        result = result[:,:,0]
+        rotated = np.matmul( rot_matrix,  vectors2transform[:,:,None] )
+        rotated = rotated[:,:,0]
         
     else:
     
@@ -525,14 +549,14 @@ def rotate2nvframev_fast(vectors2transform = np.zeros((2,3)), nv_theta = 0, nv_p
                          np.sin(nv_phi[None,:])*np.sin(nv_theta[:,None]),
                          np.cos(nv_theta[:,None]) * np.ones((1,) + nv_phi.shape)]
                       ] )
-        result = np.einsum("nojk,mo->jkmn", rot_matrix, vectors2transform)
+        rotated = np.einsum("nojk,mo->jkmn", rot_matrix, vectors2transform)
         
         if phiscalar and not thetascalar:
-            result = result[:,0]
+            rotated = rotated[:,0]
         if thetascalar and not phiscalar:
-            result = result[0,:]
+            rotated = rotated[0,:]
         
-    return result
+    return rotated
 
 
 
