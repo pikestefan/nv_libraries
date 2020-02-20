@@ -7,6 +7,12 @@ Created on Fri Nov 30 18:23:59 2018
 
 import numpy as np
 from scipy import optimize
+from matplotlib.patches import Rectangle
+from matplotlib import cm
+import matplotlib.colors as mplcol
+from math import floor, ceil
+from numpy.fft import fft2, ifft2
+import matplotlib.pyplot as plt
 
 def remove_polynomial_bg(data, degree_x, degree_y, init_params = None ):
     """
@@ -36,7 +42,8 @@ def median_correction(data_2d, add_mean = False):
     """
     Corrects line error in AFM scans by removing the median of the slow axis
     """
-    return np.array( [line - np.median(line) for line in data_2d] ) + add_mean * data_2d.mean()
+    
+    return data_2d - np.median(data_2d, axis = 0) + add_mean * data_2d.mean()
 
 def polyline_correction( data_2d, degree = 1,  add_mean = False, fit_pars = None):
     
@@ -61,16 +68,453 @@ def polyline_correction( data_2d, degree = 1,  add_mean = False, fit_pars = None
         
     return output_matrix + add_mean * data_2d.mean()
 
+def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
+                           rect_coords = (0,0), rect_thick = 0.02, length = 1,
+                           pad = 0.02, axis_handle = None, fig_handle = None, 
+                           *args, **kwargs):
+    
+    """
+    Function to generate a length label on 2D plots. Using the specified length,
+    the function makes a 2D plot without axes displaying a bar and text which
+    indicate the dimensions. Label sizes and coordinates are given in percentages
+    of the x and y coordinates.
+    
+    Parameters
+    ----------
+    Zdata: 2D np.array
+        The grid of data making the 2D plot.
+    Xdata: 2D np.array, optional
+        Needs to have the same shape as Zdata, it is the grid of x coordinates.
+        Default is None.
+    Ydata: 2D np.array, optional
+        Needs to have the same shape as Zdata, it is the grid of y coordinates.
+        Default is None.
+    rect_coords: tuple of floats, optional
+        Coordinates of the label relative to the image coordinates. Default is (0,0).
+    rect_thick: float, optional
+        How much the label background extends around the text, relative, to the 
+        image coordinates. Default is 0.02.
+    length: float, optional
+        The length represented by the bar and displayed in the text. Default is 1.
+    pad: float, optional
+        How far the text is from the length bar. Default is 0.02.
+    axis_handle:
+        The handle of the axis where the plot is made. If not given, the axis
+        is taken with plt.gca().
+    fig_handle:
+        The handle of the axis where the plot is made. If not given, the axis
+        is taken with plt.gcf().
+        
+    Returns
+    ------
+    plot_handle: 
+        The handle of the plot.
+        
+    Optional parameters
+    -------------------
+    **kwargs:
+    unit: str
+        The string appendend to indicate the length units in the label. Default is 'nm'.
+    label_precision: str
+        The float precision of the number displayed in the label. The precision
+        indicator follows the python string format method syntax. Default is ":0f".
+    label_textcolor: str or RBGA tuple
+        The color of the text. Default is 'k'.
+    fontsize: int
+        The size of the text in pts. Default is 12.
+    with_bg: bool
+        Display a background behind the text. Default is True.
+    which_plot_method: str
+        Which 2D plotting to use. The options are 'imshow', 'pcolor' and 'pcolormesh'.
+        Default is 'imshow'.
+    bg_color: 'w' or RGBA tuple
+        The color of the label background.
+    bg_extra_size: float
+        Add extra background around the label. Default is 0.01.
+        
+    Other *args or **kwargs are passed to the plotting function.
+    """
+    
+    unit = kwargs.get('unit', 'nm')
+    label_precision = kwargs.get('label_precision', ":.0f")
+    label_textcolor = kwargs.get('label_textcolor', 'k')
+    fontsize = kwargs.get('fontsize', 12)
+    with_bg = kwargs.get('with_bg', True)
+    which_plot_method = kwargs.get('which_plot_method', 'imshow')
+    bg_color = kwargs.get('bg_color', 'w')
+    bg_extra_size = kwargs.get('bg_extra_size', 0.01)
+    
+    pixely,pixelx = Zdata.shape
+    textstring = "{" + label_precision + "}"
+    textstring = textstring.format(length)
+    texstring = r"$\mathrm{" + textstring + "\," + unit +  "}$"
+    
+    if (Xdata is None) or (Ydata is None):
+        Xdata, Ydata = np.meshgrid(np.arange(pixelx),np.arange(pixely))
+        
+    rect_hei = rect_thick*(Ydata.max() - Ydata.min())
+    text_pad = pad*(Ydata.max() - Ydata.min())
+    
+    if axis_handle is None:
+        axis_handle = plt.gca()
+    if fig_handle is None:
+        fig_handle = plt.gcf()
+        
+    if which_plot_method == 'imshow':
+        plot_handle = axis_handle.imshow(Zdata, origin = 'lower',
+                                         extent = (Xdata.min(),Xdata.max(),Ydata.min(),Ydata.max()),
+                                         aspect = 'auto', *args, **kwargs)
+    elif which_plot_method == 'pcolormesh':
+        plot_handle = axis_handle.pcolormesh(Xdata,Ydata,Zdata, *args, **kwargs)
+    elif which_plot_method == 'pcolor':
+        plot_handle = axis_handle.pcolor(Xdata,Ydata,Zdata, *args, **kwargs)
+        
+    axis_handle.axis('off')
+    
+    text_y_coord = rect_coords[1] + (text_pad + rect_hei)
+    text_object = axis_handle.text(rect_coords[0]+length/2,
+                                   text_y_coord,
+                                   texstring, 
+                                   fontsize = fontsize, 
+                                   ha = 'center', color = label_textcolor)
+    
+    
+    #This code section gets the width and height of the text box
+    renderer = fig_handle.canvas.get_renderer()
+    bbox = text_object.get_window_extent(renderer = renderer) #bbox in display coordinates
+    display_coord2data_coord_transform = axis_handle.transData.inverted() #get the coord transform from display to data
+    bbox = bbox.transformed( display_coord2data_coord_transform ) #convert bbox into data coordinates
+    
+    text_w, text_h = bbox.width, abs(bbox.height)
+    
+    #Length bar
+    size_indicator = Rectangle(rect_coords, width=length, height = rect_hei,
+                               edgecolor = label_textcolor,
+                               facecolor = label_textcolor)
+    if with_bg:
+        #Calculate the size of the background box
+        tot_width = length if (length > text_w) else text_w
+        
+        #Calculate the bottom left corner position and the centre of the box
+
+        tot_height = (bbox.y0 - rect_coords[1]) + text_h
+        
+        tot_y0 = rect_coords[1]
+        tot_x0 = rect_coords[0] if (rect_coords[0] < bbox.x0) else bbox.x0
+        
+        bbox_centre_x0 = tot_x0 + tot_width/2
+        bbox_centre_y0 = tot_y0 + tot_height/2
+        
+        #Increase the size of the bbox
+        tot_width = (1 + bg_extra_size) * tot_width
+        tot_height = (1 + bg_extra_size) * tot_height #tot_height + bg_extra_size * tot_width
+        
+        #These are the coordinates of the enlarged background box
+        tot_x0 = bbox_centre_x0 - tot_width/2
+        tot_y0 = bbox_centre_y0 - tot_height/2
+        
+        bg = Rectangle((tot_x0, tot_y0), width=tot_width, height = tot_height,
+                        edgecolor = bg_color,
+                        facecolor = bg_color)
+        
+        axis_handle.add_patch(bg)
+    axis_handle.add_patch(size_indicator)
+    
+    
+    return plot_handle
+    
+def colorbar_arbitrary_position(mappable = None, side = "right", pad = 0.01, width = 0.01, height = 1,
+                                orientation = "vertical", shift = (0,0),
+                                *args, **kwargs):
+    """
+    Creates a colorbar that doesn't suffer from rescaling issues.
+    Mappable is the plot handle. *args and **kwargs are passed to the colorbar
+    """
+    ax = mappable.axes
+    fig = ax.figure
+    locpos = ax.get_position()
+    
+    x_shift, y_shift = shift
+    x_shift, y_shift = x_shift*locpos.width, y_shift*locpos.height
+    
+    if orientation == 'vertical':
+        if side == 'right':
+            coords = [locpos.x0 + locpos.width*(1+pad) + shift[0],
+                      locpos.y0 + (1 -height)*locpos.height/2 + shift[1],
+                      locpos.width*width, height*locpos.height]
+        elif side == 'left':
+            coords = [locpos.x0 - locpos.width*width - locpos.width*pad - shift[0],
+                      locpos.y0 + (1 -height)*locpos.height/2 + shift[1],
+                      locpos.width*width, height*locpos.height]
+        else:
+            raise(Exception("Side not compatible with orientation"))
+        
+        cbax = fig.add_axes(coords)
+        cbar = fig.colorbar(mappable, cax = cbax, orientation = orientation, *args, **kwargs)
+        cbar.ax.yaxis.set_ticks_position(side)
+        cbar.ax.tick_params(direction = 'out')
+    elif orientation == 'horizontal':
+        if (width == 0.01) and (height == 1):
+            width = 1
+            height = 0.02
+            
+        if side == 'top':
+            coords = [locpos.x0 + locpos.width*(1 - width)/2 + shift[0], locpos.y0 + (pad+1)*locpos.height + shift[1],
+                      locpos.width*width, height*locpos.height]
+        elif side == 'bottom':
+            coords = [locpos.x0 + locpos.width*(1 - width)/2 + shift[0], locpos.y0 - (height+pad)*locpos.height - shift[1],
+                      locpos.width*width, height*locpos.height]
+        else:
+            raise(Exception("Side not compatible with orientation"))
+            
+        cbax = fig.add_axes(coords)
+        cbar = fig.colorbar(mappable, cax = cbax, orientation = orientation, *args, **kwargs)
+        cbar.ax.xaxis.set_ticks_position(side)
+        
+    return cbar
+
+def circular_color_legend( mappable = None, xy = (0,0), size = 0.5,
+                           resolution = 500, circular_cmap = cm.hsv,
+                           **kwargs):
+    """
+    Generates a circular colorbar, for use with colormaps highlighting vector
+    directions, e.g. spin textures.
+    
+    Parameters
+    ----------
+    mappable:
+        The mappable cooresponding to the plot which needs the circular legend.
+    xy: float tuple, optional
+        The shift of the legend in axes coordinates. The alignment is specified
+        with the **kwargs. Default is 'left' and 'bottom'.
+    size: float, optional
+        The size of the legend, in relative coordinates. Default is 0.5.
+    resolution: int, optional
+        The amount of pixels defining the grid over which the legend is plotted.
+        Default is 500.
+    circular_cmap: optional
+        The colormap used specify the colors for the in-plane direction.
+        Default is cm.hsv
+    
+    Returns
+    -------
+    axis object
+        The axis of the circular legend.
+        
+    Other parameters
+    ----------------
+    **kwargs
+    rasterized: bool
+        Set to True if image rasterization is required. Default is False.
+    horizontalignment: str
+        Can be 'left', 'center', 'right'. Default is 'left'.
+    verticalalignment: str
+        Can be 'bottom', 'center', 'top'. Default is 'bottom'.
+    white_center: bool
+        If True, the color representing the out-of-plane vector is white,
+        black otherwise. Default is False.
+    linewidth: float
+        The linewidth of the circle in relative coordinates. Default is 0.01.
+    edgecolor: RGBA list or str
+        The color of the edge. Default is black.
+    """
+    
+    horizontalalignment = kwargs.get('horizontalalignment', 'left')
+    verticalalignment = kwargs.get('verticalalignment', 'left')
+    white_center = kwargs.get('white_center', False)
+    edgecolor = kwargs.get('edgecolor', 'k')
+    linewidth = kwargs.get('linewidth', .01)
+    rasterized = kwargs.get('rasterized', False)
+    
+    plt_axis = mappable.axes
+    fig = plt_axis.figure
+    figure_size= fig.get_size_inches()
+    aspect = figure_size[0] / figure_size[1] 
+    
+    locpos = plt_axis.get_position()
+    #smaller_dim = min( locpos.height, locpos.width )
+    #circ_size = size * smaller_dim
+    circ_size_x, circ_size_y = size * locpos.width, size * locpos.height * aspect
+    
+    multiplier = 0
+    if horizontalalignment == 'left':
+        pass
+    elif horizontalalignment == 'center':
+        multiplier = 0.5
+    elif horizontalalignment == 'right':
+        multiplier = 1
+        
+    #circle_x = locpos.x0 + xy[0] * (locpos.width - locpos.x0) - circ_size * multiplier
+    circle_x = locpos.x0 + xy[0] * locpos.width- circ_size_x * multiplier
+    
+    multiplier = 0
+    if verticalalignment == 'bottom':
+        pass
+    elif verticalalignment == 'center':
+        multiplier = 0.5
+    elif verticalalignment == 'top':
+        multiplier = 1
+    
+    #circle_y = locpos.y0 + xy[1] * (locpos.height - locpos.y0) - circ_size * multiplier
+    circle_y = locpos.y0 + xy[1] * locpos.height - circ_size_y * multiplier
+    
+    #leg_ax = fig.add_axes([circle_x, circle_y, circ_size, circ_size])
+    leg_ax = fig.add_axes([circle_x, circle_y, circ_size_x, circ_size_y])
+    
+    
+    X, Y = np.meshgrid( np.linspace(-1, 1, resolution),
+                        np.linspace(-1, 1, resolution) )
+    
+    norm = np.linalg.norm( np.stack( (X, Y),axis = 2 ), axis = 2 )
+    
+    Z = np.sqrt(1 -np.square(X) - np.square(Y) )
+    
+    
+    tangent = np.fliplr( np.arctan2(Y,X) )
+    tangent -= tangent.min()
+    tangent /= tangent.max()
+    
+    theta = np.arctan2( norm, Z )
+    theta -= np.nanmin(theta)
+    theta /= np.nanmax(theta)
+    
+    theta[np.isnan(theta)] = 0
+    
+    #gauss_grad =  np.exp(- np.square(norm) / (2 * central_color_rad**2) )
+        
+    
+    the_map = circular_cmap(tangent.ravel())
+    
+    if white_center:
+        the_map[:,:3] = (1-theta).ravel()[:, None] + the_map[:,:3] * theta.ravel()[:, None]#gauss_grad.ravel()[:, None] + the_map[:,:3] * (1-gauss_grad).ravel()[:, None]
+    else:
+        the_map[:,:3] = the_map[:,:3] * theta.ravel()[:, None]# the_map[:,:3] * (1-gauss_grad).ravel()[:, None]
+    
+    
+    the_map = the_map.reshape( X.shape + (4, ) )
+    
+  
+    if linewidth != 0:
+        if  type(edgecolor) is str:
+            color = mplcol.to_rgba(edgecolor)
+            color = [x for x in color]
+        the_map[ np.square(X) + np.square(Y) >=(1-linewidth)**2, :] = color
+        
+    the_map[ np.square(X) + np.square(Y) >=  1, 3] = 0
+
+    circ_legend = leg_ax.imshow(the_map, aspect = 'auto', interpolation = 'spline36',
+                                extent = (-1,1,-1,1), rasterized = rasterized)
+    leg_ax.set_xlim(-1.05,1.05)
+    leg_ax.set_ylim(-1.05,1.05)
+    leg_ax.axis('off')
+    
+    return circ_legend, theta
+    
+def crosscorrelate2d(mat1, mat2, mode = 'same'):
+    """
+    Calculates the normalised cross-correlation (or autocorrelation) of two matrices.
+    The method uses the Wiener-Kinchin theorem (fft, mulitply and then inverse fft).
+    The function already corrects the data by mean and subtraction, so there is
+    no need to provide corrected matrices. If the matrices shapes M and N are
+    larger than 2, the cross-correlation is computed along the last two dimensions.
+    M.shape[:-2] must be equal to N.shape[:-2]. 
+    
+    Parameters
+    ----------
+    mat1: np.ndarray
+        The first matrix.
+    mat2: np.ndarray
+        The second matrix.
+    mode: str
+        'full' : computes the full correlation
+        'same' : returns a matrix with the shape of the first input matrix
+        'valid' : returns the correlation where both matrices are not padded.
+                  One of the two matrices needs to be larger than the other in
+                  the both last two dimensions.
+    
+    Returns
+    -------
+    correlated: np.ndarray
+        The correlation matrix.
+    """
+    
+    mat1 = (mat1 - mat1.mean()) / mat1.std()
+    mat2 = (mat2 - mat2.mean()) / mat2.std()
+    
+    mat1shape = np.array(mat1.shape[-2:])
+    mat2shape = np.array(mat2.shape[-2:])
+    
+    finalshape = mat1shape + mat2shape - 1
+    
+    def padding_generator( finalshape, matshape ):
+        other_axes = ( (0,0), ) * len(matshape[:-2])
+        last_two = ( ( floor( ( finalshape[0] - matshape[-2] )/2), ceil((finalshape[0] - matshape[-2] ) / 2) ),
+                     ( floor( ( finalshape[1] - matshape[-1] )/2), ceil((finalshape[1] - matshape[-1] ) / 2) ),
+                   )
+        return other_axes + last_two
+
+    pad_mat1 = padding_generator(finalshape, np.array(mat1.shape))
+
+    pad_mat2 = padding_generator(finalshape, np.array(mat2.shape))
+    
+    image_center = [0,0]
+    if finalshape[0]%2 != 0:
+        image_center[0] = floor(finalshape[0]/2) + 1
+    else:
+        image_center[0] = int(finalshape[0]/2)
+        
+    if finalshape[1]%2 != 0:
+        image_center[1] = floor(finalshape[1]/2) + 1
+    else:
+        image_center[1] = int(finalshape[1]/2)
+
+    mat1 = np.pad(mat1, pad_mat1, mode = 'constant')
+    mat2 = np.pad(mat2, pad_mat2, mode = 'constant')            
+        
+    correlated = np.roll( ifft2( fft2(mat1) * fft2(mat2).conj() ).real,
+                         (image_center[0]-1, image_center[1]-1), axis = (-2,-1) )
+    if mode == 'same':
+        correlated = correlated[... ,
+                                image_center[0] - floor(mat1shape[0]/2) : image_center[0] + ceil(mat1shape[0]/2),
+                                image_center[1] - floor(mat1shape[1]/2) : image_center[1] + ceil(mat1shape[1]/2)]
+    if mode == 'valid':
+        if np.all(mat1shape >= mat2shape):
+            outputshape = mat1shape - mat2shape + 1
+        elif np.all(mat1shape >= mat2shape):
+            outputshape = mat2shape - mat1shape + 1
+        else:
+            raise ValueError("Either mat1 or mat2 must be larger than the other in both dimensions")
+            
+        correlated = correlated[...,
+                                image_center[0] - floor(outputshape[0]/2) - 1 : image_center[0] + ceil(outputshape[0]/2) - 1,
+                                image_center[1] - floor(outputshape[1]/2) - 1: image_center[1] + ceil(outputshape[1]/2) - 1]
+
+    correlated /= max(mat1shape[0],mat2shape[0]) * max(mat1shape[1],mat2shape[1])
+    
+    return correlated     
+
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from matplotlib import cm
+    X, Y = np.meshgrid( np.linspace(-10,10,100), np.linspace(-10,10,100 ) )
+    fig = plt.figure(figsize=(5,5))
+    plotty = plt.pcolormesh(X, Y,  X + Y, rasterized = True)
+    axy = plotty.axes
+    posy = axy.get_position(original = True)
+    figgy = axy.figure
     
-    direc = r"S:\low_temp_afm\data\2018_10_22\magscan_002"
-    topography = np.loadtxt(direc + r"\magscan_zout.txt")
-    
-    corrected = polyline_correct(topography, degree = 2)
-    
-    fig, ax = plt.subplots()
-    ax.set_aspect(1)
-    p = plt.pcolor(corrected, cmap = cm.Greys)
-    cb = fig.colorbar(p)
+    """
+    gne = figgy.add_axes( [posy.x0 + 0.*posy.width , posy.y0, .5*posy.height, .5*posy.width] )
+    gne.patch.set_color('r')
+    gne.patch.set_alpha(0.4)
+    Xr, Yr = np.meshgrid( np.linspace(-1,1,300), np.linspace(-1,1,300 ) )
+    br = np.full(Xr.shape, 0)
+    br[np.square(Xr) + np.square(Yr) <= 1] = 1
+    gne.imshow(br, aspect = 'auto', extent = (-1,1,-1,1), alpha = .1)
+    """
+    mymap = mplcol.LinearSegmentedColormap.from_list('gni', colors = ['r','orange','g','b','r'])
+    #colorbar_arbitrary_position(plotty,pad=0, width = 1, shift = (-0.775,0), alpha = .2)
+    _, b = circular_color_legend(plotty, size = .2, xy = (.5,.5), circular_cmap=cm.hsv,
+                          edgecolor = 'k', resolution = 600,
+                          white_center = True, linewidth = 0.01,
+                          horizontalalignment = 'center',
+                          verticalalignment = 'center')
+    plt.savefig( 'test.pdf', dpi = 300)
