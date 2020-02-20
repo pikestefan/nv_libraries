@@ -361,6 +361,19 @@ def nv_eigenfrequencies_analytical(Bnorm = 0, Btheta = 0, Bphi = 0, Dsplit = 2.8
     else:
         return eival2, eival1, eival3
     
+def _multi_lorentz( f, params, dip_number = 2):
+        np_params = np.array(params)
+        f0 = np_params[0:dip_number]
+        widths = np_params[dip_number: 2 * dip_number]
+        amps = np_params[2 * dip_number: 3 * dip_number]
+        intensity = np_params[-1]
+        
+        lorentz_line =  ( amps[:, None] *
+                         np.square(widths[:,None]) / 
+                         ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
+        lorentz_line = intensity * (1 - np.sum(lorentz_line, axis = 0) )
+        return  lorentz_line
+    
 def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = None,
              linewid_guess = None, bounds = None, **kwargs ):
     """
@@ -427,27 +440,17 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
     if linewid_guess is None:
         linewid_guess = 1e6 * np.ones( (dip_number,)  )
     
-    def multi_lorentz( f, params, dip_number = 2):
-        f0 = params[0:dip_number]
-        widths = params[dip_number: 2 * dip_number]
-        amps = params[2 * dip_number: 3 * dip_number]
-        intensity = params[-1]
-        lorentz_line = np.zeros( len(f) )
-        
-        for res_freq, linewidth, contrast in zip(f0, widths, amps):
-            lorentz_line += contrast * linewidth**2 / ( np.power(f - res_freq, 2) + linewidth**2 ) 
-        return  intensity * (1 - lorentz_line )
-    
-    fit_func = lambda x, *pars: multi_lorentz(x, pars, dip_number = dip_number)
+    fit_func = lambda x, *pars: _multi_lorentz(x, pars, dip_number = dip_number)
     
     init_guesses = np.concatenate( (freq_guess, linewid_guess, amp_guess, [odmr_data.mean()]) )
     
     if bounds is None:
         bounds = ( 0, np.inf * np.ones( (len(init_guesses, )) ) )
     try:
-        opt_pars, cov_mat = sci_opt.curve_fit(fit_func, freqs, odmr_data, p0 = init_guesses, bounds = bounds,
-                                              maxfev = maxfev, gtol = gtol)
-        fitted_data = multi_lorentz( freqs, opt_pars, dip_number = dip_number )
+        opt_pars, cov_mat = sci_opt.curve_fit( fit_func, freqs, odmr_data, p0 = init_guesses,
+                                               bounds = bounds, maxfev = maxfev,
+                                               gtol = gtol)
+        fitted_data = _multi_lorentz( freqs, opt_pars, dip_number = dip_number )
     except:
         opt_pars = np.repeat(np.nan, len(init_guesses))
         cov_mat = np.full((len(init_guesses), len(init_guesses)), np.nan)
@@ -798,29 +801,9 @@ def Bfield_fromM(Mx = None, My = None, Mz = None, X_array = None, Y_array = None
     Bz=sci_sig.convolve2d(kerXY,dxMx)+sci_sig.convolve2d(kerXY,dyMy)+sci_sig.convolve2d(kerXY,ddMz)
     B=np.array([Bx,By,Bz])
     return B
-
-def correlate2dwrapper(mat1, mat2, *args, **kwargs):
-    """
-    A function that corrects mat1 and mat2 by subtracting their respective means
-    and normalising them by their standard deviation, before calling correlated2d.
-    The result is normalised by max(mat1.shape[0],mat2.shape[0]) * 
-    max(mat1.shape[1],mat2.shape[1]). *args and **kwargs are passed to correlate2d.
-    """
-    
-    mat1 = (mat1 - mat1.mean()) / mat1.std()
-    mat2 = (mat2 - mat2.mean()) / mat2.std()
-    correlated = sci_sig.correlate2d(mat1, mat2, *args, **kwargs) / ( max(mat1.shape[0],mat2.shape[0]) * 
-                                                                     max(mat1.shape[1],mat2.shape[1]) )
-    return correlated
                           
 if __name__ == "__main__"   :
     #Code testing section!
     import matplotlib.pyplot as plt
-    len=51
-    Mx=np.zeros((len,len))
-    My=np.zeros((len,len))
-    Mz=np.zeros((len,len))
-    Mz[26,26]=1;
-    X_array=np.linspace(-500,500,len)
-    Y_array=np.linspace(-500,500,len)
-    Bdip=Bfield_fromM(Mx,My,Mz,X_array,Y_array)
+    
+    
