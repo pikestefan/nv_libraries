@@ -135,14 +135,14 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
     Other *args or **kwargs are passed to the plotting function.
     """
     
-    unit = kwargs.get('unit', 'nm')
-    label_precision = kwargs.get('label_precision', ":.0f")
-    label_textcolor = kwargs.get('label_textcolor', 'k')
-    fontsize = kwargs.get('fontsize', 12)
-    with_bg = kwargs.get('with_bg', True)
-    which_plot_method = kwargs.get('which_plot_method', 'imshow')
-    bg_color = kwargs.get('bg_color', 'w')
-    bg_extra_size = kwargs.get('bg_extra_size', 0.01)
+    unit = kwargs.pop('unit', 'nm')
+    label_precision = kwargs.pop('label_precision', ":.0f")
+    label_textcolor = kwargs.pop('label_textcolor', 'k')
+    fontsize = kwargs.pop('fontsize', 12)
+    with_bg = kwargs.pop('with_bg', True)
+    which_plot_method = kwargs.pop('which_plot_method', 'imshow')
+    bg_color = kwargs.pop('bg_color', 'w')
+    bg_extra_size = kwargs.pop('bg_extra_size', 0.01)
     
     pixely,pixelx = Zdata.shape
     textstring = "{" + label_precision + "}"
@@ -161,9 +161,9 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
         fig_handle = plt.gcf()
         
     if which_plot_method == 'imshow':
-        plot_handle = axis_handle.imshow(Zdata, origin = 'lower',
+        plot_handle = axis_handle.imshow(Zdata,
                                          extent = (Xdata.min(),Xdata.max(),Ydata.min(),Ydata.max()),
-                                         aspect = 'auto', *args, **kwargs)
+                                         *args, **kwargs)
     elif which_plot_method == 'pcolormesh':
         plot_handle = axis_handle.pcolormesh(Xdata,Ydata,Zdata, *args, **kwargs)
     elif which_plot_method == 'pcolor':
