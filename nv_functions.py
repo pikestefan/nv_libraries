@@ -557,6 +557,40 @@ def fit_nv_angle( phi_sweep_and_split = None, theta_sweep_and_split = None, Bnor
     fitted_data = error_func(fit_pars, full_data[:,0], full_data[:,1]) + full_data[:,1]
     return fit_pars, fitted_data[0:phi_rows], fitted_data[phi_rows:]
 
+def _edge_field(x_axis = None, topography = None, x_edge = 0, dist_nv = 1, Is = 1):
+    """
+    Stray field of a strip with PMA.
+    
+    Parameters
+    ----------
+    x_axis: np.array
+        The array containing the x coordinates
+    topography: np.array, optional
+        The array containing the topography of the strip. Default is an array
+        of zeros. It must have the same shape of x_axis.
+    x_edge: float
+        The position of the edge. Default is 0.
+    dist_nv: float
+        The distance between sample surface and probing height. If topography
+        is non-zero, dist_nv is a constant added to the topography. Default is 0.
+    Is: float
+        The saturation magnetisation of the strip
+    
+    Returns
+    -------
+    Bfield_array: np.ndarray
+        2D array, with shape (len(x_array), 2). The first column contains the 
+        x-component of the stray field, the second the z-component
+    """
+    mu02pi = const.mu_0 / (np.pi * 2)
+    
+    bx = -mu02pi * Is * (dist_nv + topography) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
+    
+    bz = mu02pi * Is * (x_axis - x_edge) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
+    
+    return np.vstack( (bx, bz) ).T
+    
+
 def fit_esr_edge_signal( x_axis = None, topography_slice = None, ESR_slice = None,
                          Dsplit = None, Esplit = None, NVtheta = None, NVphi = None, Bbias = 0,
                          *args, **kwargs ):
@@ -806,4 +840,13 @@ if __name__ == "__main__"   :
     #Code testing section!
     import matplotlib.pyplot as plt
     
+    xaxis = np.linspace(0,1000,500)
+    topo = np.zeros(xaxis.shape)
+    dnv = 50
+    Is = 10
+    
+    B = _edge_field(x_axis = xaxis, topography = topo, x_edge = 500, dist_nv = dnv, Is = Is)
+    
+    plt.plot(B[:,0])
+    plt.plot(B[:,1])
     
