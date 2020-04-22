@@ -83,7 +83,9 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
                               ):
     """
     Calculates the pl rate of an nv and the steady state populations.
-    Rate_dictionary contains: {'kr','k36',k45_6','k60','k6_12','mw_rate','laser_pump'}
+    Rate_dictionary contains: {'kr','k36',k45_6','k60','k6_12','k_01','k_02','laser_pump'}
+    k_01 and k_02 are the microwave driving, laser_pump is in percentage of the
+    radiative decay rate.
     
     Parameters
     ----------
@@ -117,13 +119,14 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
         added as described for pl_rate_out.
     """
     #All units are MHz
-    default_rate_dictionary = {'kr' : 32.2,          # The radiative decay rate
-                               'k36' : 12.6,         # Non-radiative to shelving, ms=0
-                               'k45_6' : 80.7,       # Non-radiative to shelving, ms=+-1
-                               'k60' : 3.1,          # Non-radiative from shelving to ms=0
-                               'k6_12' : 2.5,        # Non-radiative from shelving to ms=+-1
-                               'mw_rate' : 0,        # Microwave driving
-                               'laser_pump' : 0.1}   # Laser driving, percentage of kr 
+    default_rate_dictionary = {'kr' : 32.2,           # The radiative decay rate
+                               'k36' : 12.6,          # Non-radiative to shelving, ms=0
+                               'k45_6' : 80.7,        # Non-radiative to shelving, ms=+-1
+                               'k60' : 3.1,           # Non-radiative from shelving to ms=0
+                               'k6_12' : 2.5,         # Non-radiative from shelving to ms=+-1
+                               'k_01'  : 0,           # Microwave driving (0->1)
+                               'k_02'  : 0,           # Microwave driving (0->2)
+                               'laser_pump' : 0.1}    # Laser driving, percentage of kr 
     
     if rate_dictionary is not None:
         for key, value in rate_dictionary.items():
@@ -135,7 +138,8 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
     k45_6 = default_rate_dictionary['k45_6']
     k60 = default_rate_dictionary['k60']
     k6_12 =default_rate_dictionary['k6_12']
-    mw_rate = default_rate_dictionary['mw_rate']
+    k_01 = default_rate_dictionary['k_01']
+    k_02 = default_rate_dictionary['k_02']
     laser_pump = default_rate_dictionary['laser_pump']
     
     input_shape = Bfields.shape
@@ -169,7 +173,7 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
                                  k36, k45_6, k45_6,
                                  k60, k6_12, k6_12,
                                  laser_pump = laser_pump,
-                                 k_mw_01 = mw_rate, k_mw_02 = mw_rate)
+                                 k_mw_01 = k_01, k_mw_02 = k_02)
     
     new_rates = np.zeros( (bfield_num,) + zero_rates.shape  ) # matrix for decay rates
     rate_equation_matrix = np.zeros((bfield_num,) + zero_rates.shape) # matrix for the rate equations
