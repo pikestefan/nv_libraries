@@ -13,6 +13,7 @@ import matplotlib.colors as mplcol
 from math import floor, ceil
 from numpy.fft import fft2, ifft2
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
 def remove_polynomial_bg(data, degree_x, degree_y, init_params = None ):
     """
@@ -70,7 +71,7 @@ def polyline_correction( data_2d, degree = 1,  add_mean = False, fit_pars = None
 
 def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
                            rect_coords = (0,0), rect_thick = 0.02, length = 1,
-                           pad = 0.02, axis_handle = None, fig_handle = None, 
+                           pad = 0.02, axis_handle = None, fig_handle = None,
                            *args, **kwargs):
     
     """
@@ -131,6 +132,10 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
         The color of the label background.
     bg_extra_size: float
         Add extra background around the label. Default is 0.01.
+    return_txt_handle: bool
+        Require to return both the plot and text handles. Default si False.
+    txt_settings: dict
+        A dictionary to pass to the **kwargs of plt.text()
         
     Other *args or **kwargs are passed to the plotting function.
     """
@@ -143,6 +148,8 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
     which_plot_method = kwargs.pop('which_plot_method', 'imshow')
     bg_color = kwargs.pop('bg_color', 'w')
     bg_extra_size = kwargs.pop('bg_extra_size', 0.01)
+    return_txt_handle = kwargs.pop('return_txt_handle', False)
+    txt_settings = kwargs.pop('txt_settings',{})
     
     pixely,pixelx = Zdata.shape
     textstring = "{" + label_precision + "}"
@@ -176,6 +183,90 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
                                    text_y_coord,
                                    texstring, 
                                    fontsize = fontsize, 
+                                   ha = 'center', color = label_textcolor, **txt_settings)
+    
+    
+    #This code section gets the width and height of the text box
+    renderer = fig_handle.canvas.get_renderer()
+    bbox = text_object.get_window_extent(renderer = renderer) #bbox in display coordinates
+    display_coord2data_coord_transform = axis_handle.transData.inverted() #get the coord transform from display to data
+    bbox = bbox.transformed( display_coord2data_coord_transform ) #convert bbox into data coordinates
+    
+    text_w, text_h = bbox.width, abs(bbox.height)
+    
+    #Length bar
+    size_indicator = Rectangle(rect_coords, width=length, height = rect_hei,
+                               edgecolor = label_textcolor,
+                               facecolor = label_textcolor)
+    if with_bg:
+        #Calculate the size of the background box
+        tot_width = length if (length > text_w) else text_w
+        
+        #Calculate the bottom left corner position and the centre of the box
+
+        tot_height = (bbox.y0 - rect_coords[1]) + text_h
+        
+        ratio = tot_width / tot_height
+        
+        tot_y0 = rect_coords[1]
+        tot_x0 = rect_coords[0] if (rect_coords[0] < bbox.x0) else bbox.x0
+        
+        bbox_centre_x0 = tot_x0 + tot_width/2
+        bbox_centre_y0 = tot_y0 + tot_height/2
+        
+        #Increase the size of the bbox
+        tot_width = (1 + bg_extra_size) * tot_width
+        tot_height = tot_height + bg_extra_size * tot_height * ratio #tot_height + bg_extra_size * tot_width
+        
+        #These are the coordinates of the enlarged background box
+        tot_x0 = bbox_centre_x0 - tot_width/2
+        tot_y0 = bbox_centre_y0 - tot_height/2
+        
+        bg = Rectangle((tot_x0, tot_y0), width=tot_width, height = tot_height,
+                        edgecolor = bg_color,
+                        facecolor = bg_color)
+        
+        axis_handle.add_patch(bg)
+    axis_handle.add_patch(size_indicator)
+    
+    if return_txt_handle:
+        return plot_handle, text_object
+    else:
+        return plot_handle
+
+def add_size_label(xax = None, yax = None, matshape = None,
+                   rect_coords = (0,0), rect_thick = 0.02, length = 1,
+                   pad = 0.02, axis_handle = None, fig_handle = None, 
+                   *args, **kwargs):
+    unit = kwargs.pop('unit', 'nm')
+    label_precision = kwargs.pop('label_precision', ":.0f")
+    label_textcolor = kwargs.pop('label_textcolor', 'k')
+    fontsize = kwargs.pop('fontsize', 12)
+    with_bg = kwargs.pop('with_bg', True)
+    bg_color = kwargs.pop('bg_color', 'w')
+    bg_extra_size = kwargs.pop('bg_extra_size', 0.01)
+    
+    pixely,pixelx = matshape
+    textstring = "{" + label_precision + "}"
+    textstring = textstring.format(length)
+    texstring = r"$\mathrm{" + textstring + "\," + unit +  "}$"
+    
+    if (xax is None) or (yax is None):
+        xax, yax = np.arange(pixelx), np.arange(pixely)
+        
+    if axis_handle is None:
+        axis_handle = plt.gca()
+    if fig_handle is None:
+        fig_handle = plt.gcf()
+        
+    rect_hei = rect_thick*(yax.max() - yax.min())
+    text_pad = pad*(xax.max() - xax.min())
+    
+    text_y_coord = rect_coords[1] + (text_pad + rect_hei)
+    text_object = axis_handle.text(rect_coords[0]+length/2,
+                                   text_y_coord,
+                                   texstring, 
+                                   fontsize = fontsize, 
                                    ha = 'center', color = label_textcolor)
     
     
@@ -199,6 +290,8 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
 
         tot_height = (bbox.y0 - rect_coords[1]) + text_h
         
+        ratio = tot_width / tot_height
+        
         tot_y0 = rect_coords[1]
         tot_x0 = rect_coords[0] if (rect_coords[0] < bbox.x0) else bbox.x0
         
@@ -207,7 +300,7 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
         
         #Increase the size of the bbox
         tot_width = (1 + bg_extra_size) * tot_width
-        tot_height = (1 + bg_extra_size) * tot_height #tot_height + bg_extra_size * tot_width
+        tot_height = tot_height + bg_extra_size * tot_height * ratio #tot_height + bg_extra_size * tot_width
         
         #These are the coordinates of the enlarged background box
         tot_x0 = bbox_centre_x0 - tot_width/2
@@ -220,8 +313,7 @@ def plot2d_with_size_label(Zdata, Xdata = None, Ydata = None,
         axis_handle.add_patch(bg)
     axis_handle.add_patch(size_indicator)
     
-    
-    return plot_handle
+    return None
     
 def colorbar_arbitrary_position(mappable = None, side = "right", pad = 0.01, width = 0.01, height = 1,
                                 orientation = "vertical", shift = (0,0),
@@ -493,28 +585,60 @@ def crosscorrelate2d(mat1, mat2, mode = 'same'):
     
     return correlated     
 
+def parula_cmap():
+    cm_data = [[0.2081, 0.1663, 0.5292], [0.2116238095, 0.1897809524, 0.5776761905], 
+                 [0.212252381, 0.2137714286, 0.6269714286], [0.2081, 0.2386, 0.6770857143], 
+                 [0.1959047619, 0.2644571429, 0.7279], [0.1707285714, 0.2919380952, 
+                  0.779247619], [0.1252714286, 0.3242428571, 0.8302714286], 
+                 [0.0591333333, 0.3598333333, 0.8683333333], [0.0116952381, 0.3875095238, 
+                  0.8819571429], [0.0059571429, 0.4086142857, 0.8828428571], 
+                 [0.0165142857, 0.4266, 0.8786333333], [0.032852381, 0.4430428571, 
+                  0.8719571429], [0.0498142857, 0.4585714286, 0.8640571429], 
+                 [0.0629333333, 0.4736904762, 0.8554380952], [0.0722666667, 0.4886666667, 
+                  0.8467], [0.0779428571, 0.5039857143, 0.8383714286], 
+                 [0.079347619, 0.5200238095, 0.8311809524], [0.0749428571, 0.5375428571, 
+                  0.8262714286], [0.0640571429, 0.5569857143, 0.8239571429], 
+                 [0.0487714286, 0.5772238095, 0.8228285714], [0.0343428571, 0.5965809524, 
+                  0.819852381], [0.0265, 0.6137, 0.8135], [0.0238904762, 0.6286619048, 
+                  0.8037619048], [0.0230904762, 0.6417857143, 0.7912666667], 
+                 [0.0227714286, 0.6534857143, 0.7767571429], [0.0266619048, 0.6641952381, 
+                  0.7607190476], [0.0383714286, 0.6742714286, 0.743552381], 
+                 [0.0589714286, 0.6837571429, 0.7253857143], 
+                 [0.0843, 0.6928333333, 0.7061666667], [0.1132952381, 0.7015, 0.6858571429], 
+                 [0.1452714286, 0.7097571429, 0.6646285714], [0.1801333333, 0.7176571429, 
+                  0.6424333333], [0.2178285714, 0.7250428571, 0.6192619048], 
+                 [0.2586428571, 0.7317142857, 0.5954285714], [0.3021714286, 0.7376047619, 
+                  0.5711857143], [0.3481666667, 0.7424333333, 0.5472666667], 
+                 [0.3952571429, 0.7459, 0.5244428571], [0.4420095238, 0.7480809524, 
+                  0.5033142857], [0.4871238095, 0.7490619048, 0.4839761905], 
+                 [0.5300285714, 0.7491142857, 0.4661142857], [0.5708571429, 0.7485190476, 
+                  0.4493904762], [0.609852381, 0.7473142857, 0.4336857143], 
+                 [0.6473, 0.7456, 0.4188], [0.6834190476, 0.7434761905, 0.4044333333], 
+                 [0.7184095238, 0.7411333333, 0.3904761905], 
+                 [0.7524857143, 0.7384, 0.3768142857], [0.7858428571, 0.7355666667, 
+                  0.3632714286], [0.8185047619, 0.7327333333, 0.3497904762], 
+                 [0.8506571429, 0.7299, 0.3360285714], [0.8824333333, 0.7274333333, 0.3217], 
+                 [0.9139333333, 0.7257857143, 0.3062761905], [0.9449571429, 0.7261142857, 
+                  0.2886428571], [0.9738952381, 0.7313952381, 0.266647619], 
+                 [0.9937714286, 0.7454571429, 0.240347619], [0.9990428571, 0.7653142857, 
+                  0.2164142857], [0.9955333333, 0.7860571429, 0.196652381], 
+                 [0.988, 0.8066, 0.1793666667], [0.9788571429, 0.8271428571, 0.1633142857], 
+                 [0.9697, 0.8481380952, 0.147452381], [0.9625857143, 0.8705142857, 0.1309], 
+                 [0.9588714286, 0.8949, 0.1132428571], [0.9598238095, 0.9218333333, 
+                  0.0948380952], [0.9661, 0.9514428571, 0.0755333333], 
+                 [0.9763, 0.9831, 0.0538]]
+
+    parula_map = LinearSegmentedColormap.from_list('parula', cm_data)
+    return parula_map
+
 if __name__ == '__main__':
-    X, Y = np.meshgrid( np.linspace(-10,10,100), np.linspace(-10,10,100 ) )
-    fig = plt.figure(figsize=(5,5))
-    plotty = plt.pcolormesh(X, Y,  X + Y, rasterized = True)
-    axy = plotty.axes
-    posy = axy.get_position(original = True)
-    figgy = axy.figure
+    X,Y = np.mgrid[0:10:100j,0:10:100j]
+    Z = X* Y
     
-    """
-    gne = figgy.add_axes( [posy.x0 + 0.*posy.width , posy.y0, .5*posy.height, .5*posy.width] )
-    gne.patch.set_color('r')
-    gne.patch.set_alpha(0.4)
-    Xr, Yr = np.meshgrid( np.linspace(-1,1,300), np.linspace(-1,1,300 ) )
-    br = np.full(Xr.shape, 0)
-    br[np.square(Xr) + np.square(Yr) <= 1] = 1
-    gne.imshow(br, aspect = 'auto', extent = (-1,1,-1,1), alpha = .1)
-    """
-    mymap = mplcol.LinearSegmentedColormap.from_list('gni', colors = ['r','orange','g','b','r'])
-    #colorbar_arbitrary_position(plotty,pad=0, width = 1, shift = (-0.775,0), alpha = .2)
-    _, b = circular_color_legend(plotty, size = .2, xy = (.5,.5), circular_cmap=cm.hsv,
-                          edgecolor = 'k', resolution = 600,
-                          white_center = True, linewidth = 0.01,
-                          horizontalalignment = 'center',
-                          verticalalignment = 'center')
-    plt.savefig( 'test.pdf', dpi = 300)
+    recwid = 0.3
+    rechei = 0.1
+    
+    fig, ax = plt.subplots(figsize = (5,5))
+    ax.imshow(Z, extent = (0,10,0,10), origin = 'lower')
+    add_size_label(xax = X[0,:], yax = Y[:,0], matshape = Z.shape, rect_coords=(0.5 * X.max(), 0.5 * Y.max()),
+                   length = 2, bg_extra_size = 0.1)
