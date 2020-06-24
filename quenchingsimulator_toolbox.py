@@ -145,7 +145,7 @@ def quenching_calculator(Bfields, rate_dictionary = None,
     Bfields = Bfields + Bias_field
     init_shape = Bfields.shape
     
-    Bfields = rotate2nvframev(vectors2transform = Bfields,
+    Bfields = rotate2nvframe(vectors2transform = Bfields,
                                    nv_theta = nv_theta, nv_phi = nv_phi)
     if Bfields.shape != init_shape:
         #This means that an array of phi or thetas was requested.
@@ -298,7 +298,7 @@ def find_eigens_and_compose(Htot_gs = None, Htot_es = None,
     full_matrix[:,-1,-1] = 1
     return full_matrix
 
-def rotate2nvframev(vectors2transform, nv_theta = 0, nv_phi = 0):
+def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
     """
     Rot matrix is the product of a rotation about z followed by a rotation about x.
     If both theta and phi are scalars, it returns an array with the same shape.
