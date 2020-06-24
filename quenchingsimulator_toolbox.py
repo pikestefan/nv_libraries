@@ -51,20 +51,20 @@ Hmagnetic = lambda Bvec: gamma2pi * (Bvec[0]*Sx + Bvec[1]*Sy + Bvec[2]*Sz)
 Htot_gs = lambda Bvec: H0_gs + Hmagnetic(Bvec)
 Htot_es = lambda Bvec: H0_es + Hmagnetic(Bvec)
 
-def Hmagnetic_fast(Bvec):
+def Hmagnetic(Bvec):
     """
     Bvec is (Bfield_num,3)-shaped array
     """
     return gamma2pi * np.einsum("njk,mn->mjk",S_array,Bvec)
 
 
-def Htot_gs_fast(Bvec):
-    return H0_gs + Hmagnetic_fast(Bvec)
+def Htot_gs(Bvec):
+    return H0_gs + Hmagnetic(Bvec)
 
-def Htot_es_fast(Bvec):
-    return H0_es + Hmagnetic_fast(Bvec)
+def Htot_es(Bvec):
+    return H0_es + Hmagnetic(Bvec)
 
-def quenching_calculator_fast(Bfields, rate_dictionary = None,
+def quenching_calculator(Bfields, rate_dictionary = None,
                               nv_theta = 54.7*np.pi/180, nv_phi = 0,
                               rate_coeff = 1e-3, Bias_field = None,
                               correct_for_crossing = False,
@@ -145,7 +145,7 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
     Bfields = Bfields + Bias_field
     init_shape = Bfields.shape
     
-    Bfields = rotate2nvframev_fast(vectors2transform = Bfields,
+    Bfields = rotate2nvframev(vectors2transform = Bfields,
                                    nv_theta = nv_theta, nv_phi = nv_phi)
     if Bfields.shape != init_shape:
         #This means that an array of phi or thetas was requested.
@@ -181,9 +181,9 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
     norm_is_zero = (linalg.norm(Bfields, axis = 1) == 0)
 
     #Calculate the B field dependence
-    full_Htot_gs = Htot_gs_fast(Bfields)
-    full_Htot_es = Htot_es_fast(Bfields)
-    coefficient_matrix = find_eigens_and_compose_fast(Htot_gs = full_Htot_gs,
+    full_Htot_gs = Htot_gs(Bfields)
+    full_Htot_es = Htot_es(Bfields)
+    coefficient_matrix = find_eigens_and_compose(Htot_gs = full_Htot_gs,
                                                       Htot_es=full_Htot_es,
                                                       correct_for_crossing = correct_for_crossing)
     coefficient_matrix[norm_is_zero,:,:] = np.eye(rate_rows)
@@ -198,7 +198,7 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
                                                )
                          )
 
-    rate_equation_matrix = generate_rate_eq_fast(new_rates)
+    rate_equation_matrix = generate_rate_eq(new_rates)
     steady_states = linalg.solve(rate_equation_matrix, solution_vector)[:,:,0]
     
     #Calculate the fluorescence rate from the three excited states and their decay rates
@@ -251,7 +251,7 @@ def zeroB_decay_mat(k30, k41, k52, #Radiative decay rates
     return matrix
 
 
-def generate_rate_eq_fast(decay_matrix):
+def generate_rate_eq(decay_matrix):
     rate_matrix = np.array(decay_matrix.transpose([0,2,1]))
 
     di_inds = np.diag_indices(decay_matrix.shape[1])
@@ -263,7 +263,7 @@ def generate_rate_eq_fast(decay_matrix):
     return rate_matrix
 
 
-def find_eigens_and_compose_fast(Htot_gs = None, Htot_es = None,
+def find_eigens_and_compose(Htot_gs = None, Htot_es = None,
                                  correct_for_crossing = False):
     
     b_field_num = Htot_gs.shape[0]
@@ -298,7 +298,7 @@ def find_eigens_and_compose_fast(Htot_gs = None, Htot_es = None,
     full_matrix[:,-1,-1] = 1
     return full_matrix
 
-def rotate2nvframev_fast(vectors2transform, nv_theta = 0, nv_phi = 0):
+def rotate2nvframev(vectors2transform, nv_theta = 0, nv_phi = 0):
     """
     Rot matrix is the product of a rotation about z followed by a rotation about x.
     If both theta and phi are scalars, it returns an array with the same shape.
@@ -398,7 +398,7 @@ if __name__ == '__main__':
     
       
     
-    pl,pops = quenching_calculator_fast(Bfields,nv_theta=0,correct_for_crossing=True)
+    pl,pops = quenching_calculator(Bfields,nv_theta=0,correct_for_crossing=True)
     
     for pop in pops[:,:].T:
         plt.plot(plotaxis,pop)
@@ -426,7 +426,7 @@ if __name__ == '__main__':
     for ii,alpha in enumerate(coeffs):
         for key,val in test_dic.items():
             iterdic[key]=val*alpha
-        pl,_ = quenching_calculator_fast(Bfields,nv_theta=0,correct_for_crossing=True,rate_dictionary=test_dic)
+        pl,_ = quenching_calculator(Bfields,nv_theta=0,correct_for_crossing=True,rate_dictionary=test_dic)
         pls[ii] = pl
     plt.plot(coeffs,pls)
     
@@ -439,9 +439,9 @@ if __name__ == '__main__':
     curr_dic = {"laser_pump" : rate, "mw_rate" : mw_rate}
     curr_dic_nomw = {"laser_pump" : rate}
     
-    with_mw, _ = quenching_calculator_fast(Bfields = Bfields,
+    with_mw, _ = quenching_calculator(Bfields = Bfields,
                                            rate_dictionary = curr_dic)
-    without_mw,pops = quenching_calculator_fast(Bfields = Bfields,
+    without_mw,pops = quenching_calculator(Bfields = Bfields,
                                              rate_dictionary = curr_dic_nomw)
     
     contrasts = (without_mw - with_mw)/without_mw
