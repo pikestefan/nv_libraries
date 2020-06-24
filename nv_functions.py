@@ -779,7 +779,6 @@ def Bfield_fromBnv(Bnv_matrix = None, nv_theta = 54.7*np.pi /180, nv_phi = 0,
     Bnv_kspace = fft.fft2(Bnv_matrix)
     
     #Assume the curl(B) = 0 in the region where the NV has measured the field.
-    #Assume also that the distribution of magnetisation is planar in the (x,y) plane.
     #Then the stray fields are related by the following relations, in the k-space
     #lying in the (x,y) plane:
     Bz_kspace = Bnv_kspace / ( -1j * nx * Kx_normalised -1j * ny * Ky_normalised + nz )
