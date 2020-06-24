@@ -11,16 +11,8 @@ from scipy import constants
 from math import sin,cos
 
 #### Hamiltonian parameters #####
+
 #Constants
-"""
-g_gs= 2
-bohr_mag, _, _ = constants.physical_constants["Bohr magneton"]
-hplanck = constants.Planck
-hplanck_par = constants.hbar
-gamma2pi = g_gs * bohr_mag  / hplanck # Hz/T
-"""
-
-
 hplanck = constants.Planck
 hplanck_par = constants.hbar
 g_gs,_,_ = constants.physical_constants['electron g factor']
@@ -71,10 +63,6 @@ def Htot_gs_fast(Bvec):
 
 def Htot_es_fast(Bvec):
     return H0_es + Hmagnetic_fast(Bvec)
-#def Htot_gs_fast(Bvec):
-"""
-Bvec is (Bfield_num,3)-shaped array
-"""
 
 def quenching_calculator_fast(Bfields, rate_dictionary = None,
                               nv_theta = 54.7*np.pi/180, nv_phi = 0,
@@ -225,126 +213,6 @@ def quenching_calculator_fast(Bfields, rate_dictionary = None,
     return pl_rate_out, steady_states_out
 
 
-def quenching_calculator(Bfields = None, rate_dictionary = None, 
-                         nv_theta = 55.6, nv_phi = 0, rate_coeff = 1e-3,
-                         Bias_field = None):
-    
-    """
-    Calculates the pl rate of an nv and the steady state populations.
-    
-    Inputs:
-        Bfields: array with shape (3,) or (N1,...N2,3)
-        rate_dictionary: a dictionary with the decay rates, including pump rate
-                         and mw_pump rate
-        nv_theta: the NV azimuthal angle in the lab frame. 
-        nv_phi: the NV equatorial angle in the lab frame.
-        rate_coeff: the coefficient which simulates the collection efficiency
-        Bias_field: a (3,)-shaped array which represent a Bias field in the lab
-                    frame
-    Returns:
-        pl_rate_out: array with the same shape as Bfields up to the second to 
-                     last axis. It contains the 
-                     not-normalised PL of the NV.
-        steady_states_out: a array shape Bfields.shape[0:-1] + (7,). E.g., if
-                           Bfields.shape = (10,20,3) -> steady_states_out.shape
-                           = (10,20,7). It contains the steady states populations,
-                           normalised to sum(n_i, i = {0,6}) = 1
-        
-    """
-    default_rate_dictionary = {'kr' : 32.2,
-                               'k36' : 12.6,
-                               'k45_6' : 80.7,
-                               'k60' : 3.1,
-                               'k6_12' : 2.5,
-                               'mw_rate' : 0,
-                               'laser_pump' : 0.1}
-    
-    if rate_dictionary is not None:
-        for key, value in rate_dictionary.items():
-            if key in default_rate_dictionary:
-                default_rate_dictionary[key] = value
-    
-    input_shape = Bfields.shape
-    if input_shape == (3,):
-        Bfields = np.array([Bfields])
-        bfield_num = 1
-        input_shape = (1,)
-    elif len(input_shape) == 2:
-        bfield_num = input_shape[0]
-    elif len(input_shape) > 2:
-        bfield_num = 1
-        for ii in range(0,len(input_shape)-1):
-            bfield_num = bfield_num * input_shape[ii]
-        Bfields = np.reshape(Bfields, (bfield_num,3))
-    
-    kr = default_rate_dictionary['kr']
-    k36 = default_rate_dictionary['k36']
-    k45_6 = default_rate_dictionary['k45_6']
-    k60 = default_rate_dictionary['k60']
-    k6_12 =default_rate_dictionary['k6_12']
-    mw_rate = default_rate_dictionary['mw_rate']
-    laser_pump = default_rate_dictionary['laser_pump']
-    
-    #The unperturbed decay rates
-    zero_rates = zeroB_decay_mat(kr ,kr , kr,
-                                 k36, k45_6, k45_6,
-                                 k60, k6_12, k6_12,
-                                 laser_pump = laser_pump,
-                                 k_mw_01 = mw_rate, k_mw_02 = mw_rate)
-    
-    new_rates = np.zeros( zero_rates.shape + (bfield_num,) ) # matrix for decay rates
-    rate_equation_matrix = np.array(new_rates) # matrix for the rate equations
-    
-    rate_rows, rate_cols = zero_rates.shape
-    
-    #Matrix to store the eigenstate coefficients
-    coefficient_matrix = np.array(new_rates, dtype = np.complex)
-    
-    #levels = np.zeros( (len(bnorm),3) ) Use it to store one level coefficients
-    solution_vector = np.zeros( (rate_rows,) )
-    solution_vector[0] = 1
-    steady_states = np.zeros( (bfield_num, rate_rows) )
-    
-    if (Bias_field is None):
-        Bias_field = 0
-    elif (linalg.norm(Bias_field) == 0):
-        Bias_field = 0
-    
-    #Calculate the B field dependence
-    for kk, field in enumerate(Bfields):
-        field = field + Bias_field
-        field = rotate2nvframe(vector2transform = field, nv_theta = nv_theta, nv_phi = nv_phi)
-        #print(field)
-        #print(linalg.norm(field))
-        if (linalg.norm(field) == 0):
-            matrix = np.eye(rate_rows)
-        else:
-            matrix = find_eigens_and_compose(Htot_gs(field), Htot_es(field))
-        coefficient_matrix[:,:,kk] = matrix
-        
-        for ii in range(rate_rows):
-            for jj in range(rate_cols):
-                new_rates[ii,jj,kk] = np.dot( np.square( np.abs(matrix[ii,:]) ),
-                                              np.dot(zero_rates,
-                                                     np.square( np.abs(matrix[jj,:]))
-                                                    )
-                                            )                                      
-        rate_equation_matrix[:,:,kk] = generate_rate_eq(new_rates[:,:,kk])
-        steady_states[kk,:] = linalg.solve(rate_equation_matrix[:,:,kk], solution_vector)
-        
-                                      
-    #print(new_rates[:,:,0] == new_rates_alt[:,:,0])
-    #Calculate the fluorescence rate from the three excited states and their decay rates
-    pl_rate = np.zeros( (bfield_num,) )
-    for ii, levels_at_B in enumerate(steady_states):
-        excited_pops = levels_at_B[3:6]
-        excited_rates = np.array( new_rates[3:6,0:3, ii] )
-        pl_rate[ii] = rate_coeff*np.sum(  np.dot(excited_rates.T, excited_pops) )
-    pl_rate_out = np.reshape(pl_rate, input_shape[:-1])
-    steady_states_out = np.reshape(steady_states, input_shape[:-1] + (7,))
-    
-    return pl_rate_out, steady_states_out
-
 
 # Matrix for the NV decay rates
 #
@@ -382,14 +250,7 @@ def zeroB_decay_mat(k30, k41, k52, #Radiative decay rates
                          ])
     return matrix
 
-def generate_rate_eq(decay_matrix):
-    rate_matrix = np.array(decay_matrix.T)
-    
-    for ii in range(0, len(rate_matrix)):
-        rate_matrix[ii,ii] +=  - np.sum( decay_matrix[ii,:] )
-    rate_matrix[0,:] = 1
-    return rate_matrix
-    
+
 def generate_rate_eq_fast(decay_matrix):
     rate_matrix = np.array(decay_matrix.transpose([0,2,1]))
 
@@ -401,29 +262,6 @@ def generate_rate_eq_fast(decay_matrix):
     rate_matrix[:,0,:] = 1
     return rate_matrix
 
-# Warning: this works only for a strain-free zero-field Hamiltonian
-# The Sz eigenstates commute with the hamiltonian hDSz^2, so 
-def find_eigens_and_compose(Htot_gs = None, Htot_es = None):
-    
-    try:
-        _, eistates_gs = linalg.eigh( Htot_gs )
-        _, eistates_es = linalg.eigh( Htot_es )
-        
-    except:
-        raise ValueError("find_eigs_and_compose: One of the two matrices is not defined!")
-    
-    eistates_gs = eistates_gs.T
-    eistates_gs = eistates_gs[:, [1,2,0]]
-    
-    eistates_es = eistates_es.T
-    eistates_es = eistates_es[:,[1,2,0]]    
-    
-    full_matrix = np.zeros( (7,7), dtype = complex )
-    full_matrix[0:3,0:3] = eistates_gs
-    full_matrix[3:6,3:6] = eistates_es
-    full_matrix[-1,-1] = 1
-    
-    return full_matrix
 
 def find_eigens_and_compose_fast(Htot_gs = None, Htot_es = None,
                                  correct_for_crossing = False):
@@ -459,26 +297,6 @@ def find_eigens_and_compose_fast(Htot_gs = None, Htot_es = None,
     full_matrix[:,3:6,3:6] = eistates_es
     full_matrix[:,-1,-1] = 1
     return full_matrix
-
-def find_eigens_eivals(Htot = None):
-    
-    try:
-        eivals, eistates = linalg.eigh( Htot )
-        
-    except:
-        raise ValueError("find_eigens_eivals: matrix is not defined!")   
-    
-    return eivals, eistates.T
-
-def rotate2nvframe(vector2transform = np.array([0,0,0]), nv_theta = 0, nv_phi = 0):
-    rot_aboutz = np.array([ [np.cos(nv_phi), np.sin(nv_phi), 0],
-                            [-np.sin(nv_phi), np.cos(nv_phi), 0],
-                             [0, 0, 1] ])
-    rot_aboutx = np.array( [ [np.cos(nv_theta), 0, -np.sin(nv_theta)],
-                             [0, 1, 0],
-                             [np.sin(nv_theta), 0, np.cos(nv_theta)] ] )
-    return np.matmul( np.matmul(rot_aboutx, rot_aboutz),  vector2transform)
-
 
 def rotate2nvframev_fast(vectors2transform, nv_theta = 0, nv_phi = 0):
     """
