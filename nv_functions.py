@@ -727,6 +727,33 @@ def mag_components_from_resonances(nu_minus_mat = None, nu_plus_mat = None, Dspl
     Bpar =  (Dsplit * Bnorm_sq + Delta) / (2 * Dsplit) / gamma
     Bort =  (Dsplit * Bnorm_sq - Delta) / (2 * Dsplit) / gamma
     return Bpar, Bort
+
+def get_matrix_neighbourhoods(matrix, neighbourhood = 1):
+    """
+    Returns a 3D matrix containing the neighbourhood of each matrix element
+    
+    Parameters
+    ----------
+    matrix : (M,N) 2D array
+        The 2D matrix.
+    neighbourhood : int, optional
+        The neighbourhood of the pixel
+
+    Returns
+    -------
+    arr_view : (M * N, neighbourhood, neighbourhood) numpy.ndarray
+        The matrix containing the neighbourhoods.
+    
+    """
+    padded = np.pad(matrix, neighbourhood, mode = 'constant', constant_values = 0)
+    
+    sub_shape =( neighbourhood*2 + 1, ) * 2
+    view_shape = tuple(np.subtract(padded.shape, sub_shape) + 1) + sub_shape
+    arr_view = np.lib.stride_tricks.as_strided(padded, view_shape, padded.strides * 2)
+
+    arr_view = arr_view.reshape((-1,) + sub_shape)
+    
+    return arr_view
     
 def Bfield_fromBnv(Bnv_matrix = None, nv_theta = 54.7*np.pi /180, nv_phi = 0,
                    delta = 1e-20):
