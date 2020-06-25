@@ -135,6 +135,10 @@ def quenching_simulator(Bfields, rate_dictionary = None,
         Bfields = np.array([Bfields])
         bfield_num = 1
         input_shape = (1,)
+    #If the magnetic field is a multidimensional matrix, reshape it to a  
+    # matrix with 3 columns representing the 3 field components and with as many rows
+    # as the product of all the dimensions but the last one (which contains the 
+    # field component). Allows to handle any matrix dimensionality.
     elif len(input_shape) > 1:
         bfield_num = np.prod( input_shape[:-1] )
         Bfields = np.reshape(Bfields, (bfield_num,3))
@@ -145,8 +149,10 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     Bfields = Bfields + Bias_field
     init_shape = Bfields.shape
     
+    #Rotate the fields to the NV reference frame
     Bfields = rotate2nvframe(vectors2transform = Bfields,
-                                   nv_theta = nv_theta, nv_phi = nv_phi)
+                             nv_theta = nv_theta, nv_phi = nv_phi)
+    
     if Bfields.shape != init_shape:
         #This means that an array of phi or thetas was requested.
         #Reshape again the Bfields, with the goal of obtaining a
