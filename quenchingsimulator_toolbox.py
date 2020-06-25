@@ -64,11 +64,11 @@ def Htot_gs(Bvec):
 def Htot_es(Bvec):
     return H0_es + Hmagnetic(Bvec)
 
-def quenching_calculator(Bfields, rate_dictionary = None,
-                              nv_theta = 54.7*np.pi/180, nv_phi = 0,
-                              rate_coeff = 1e-3, Bias_field = None,
-                              correct_for_crossing = False,
-                              ):
+def quenching_simulator(Bfields, rate_dictionary = None,
+                        nv_theta = 54.7*np.pi/180, nv_phi = 0,
+                        rate_coeff = 1e-3, Bias_field = None,
+                        correct_for_crossing = False,
+                        ):
     """
     Calculates the pl rate of an nv and the steady state populations.
     Rate_dictionary contains: {'kr','k36',k45_6','k60','k6_12','k_01','k_02','laser_pump'}
