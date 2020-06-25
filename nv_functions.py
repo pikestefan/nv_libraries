@@ -864,15 +864,6 @@ def Bfield_fromM(Mx = None, My = None, Mz = None, X_array = None, Y_array = None
                           
 if __name__ == "__main__"   :
     #Code testing section!
-    import matplotlib.pyplot as plt
-    
-    xaxis = np.linspace(0,1000,500)
-    topo = np.zeros(xaxis.shape)
-    dnv = 50
-    Is = 10
-    
-    B = _edge_field(x_axis = xaxis, topography = topo, x_edge = 500, dist_nv = dnv, Is = Is)
-    
-    plt.plot(B[:,0])
-    plt.plot(B[:,1])
+    A = np.reshape(np.arange(0,25), (5,5))
+    B = get_matrix_neighbourhoods(A, 2)
     
