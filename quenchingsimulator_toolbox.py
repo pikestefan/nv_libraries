@@ -78,7 +78,7 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     Parameters
     ----------
     Bfields: np.ndarray
-        array with shape (3,) or (N1,...N2,3)
+        array with shape (3,) or (N1,..., Nmax,3)
     rate_dictionary: dictionary
         A dictionary with the decay rates, including pump rate and mw_pump rate.
     nv_theta: float or array_like, optional
@@ -168,12 +168,9 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     
     rate_rows, rate_cols = zero_rates.shape
     
-    #Matrix to store the eigenstate coefficients
-    #coefficient_matrix = np.array(new_rates, dtype = np.complex)
     
-    #levels = np.zeros( (len(bnorm),3) ) Use it to store one level coefficients
     solution_vector = np.zeros( (rate_rows,) )
-    solution_vector[0] = 1
+    solution_vector[0] = 1 #Impose that the sum of the populations needs to be 1
     solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis],
                                 bfield_num, axis = 0)
     steady_states = np.zeros( (bfield_num, rate_rows) )
@@ -184,8 +181,8 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     full_Htot_gs = Htot_gs(Bfields)
     full_Htot_es = Htot_es(Bfields)
     coefficient_matrix = find_eigens_and_compose(Htot_gs = full_Htot_gs,
-                                                      Htot_es=full_Htot_es,
-                                                      correct_for_crossing = correct_for_crossing)
+                                                 Htot_es=full_Htot_es,
+                                                 correct_for_crossing = correct_for_crossing)
     coefficient_matrix[norm_is_zero,:,:] = np.eye(rate_rows)
     
     
@@ -398,7 +395,7 @@ if __name__ == '__main__':
     
       
     
-    pl,pops = quenching_calculator(Bfields,nv_theta=0,correct_for_crossing=True)
+    pl,pops = quenching_simulator(Bfields,nv_theta=0,correct_for_crossing=True)
     
     for pop in pops[:,:].T:
         plt.plot(plotaxis,pop)
