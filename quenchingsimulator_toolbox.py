@@ -46,17 +46,14 @@ Sx_sq_Sy_sq = np.dot(Sx,Sx) - np.dot(Sy,Sy)
 H0_gs = Dgs * Sz_sq# + Egs * Sx_sq_Sy_sq
 H0_es = Des * Sz_sq
 
-Hmagnetic = lambda Bvec: gamma2pi * (Bvec[0]*Sx + Bvec[1]*Sy + Bvec[2]*Sz)
 
-Htot_gs = lambda Bvec: H0_gs + Hmagnetic(Bvec)
-Htot_es = lambda Bvec: H0_es + Hmagnetic(Bvec)
+#### Functions #####
 
 def Hmagnetic(Bvec):
     """
     Bvec is (Bfield_num,3)-shaped array
     """
     return gamma2pi * np.einsum("njk,mn->mjk",S_array,Bvec)
-
 
 def Htot_gs(Bvec):
     return H0_gs + Hmagnetic(Bvec)
@@ -138,8 +135,11 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     #If the magnetic field is a multidimensional matrix, reshape it to a  
     # matrix with 3 columns representing the 3 field components and with as many rows
     # as the product of all the dimensions but the last one (which contains the 
-    # field component). Allows to handle any matrix dimensionality.
+    # field components). Allows to handle any matrix dimensionality.
     elif len(input_shape) > 1:
+        if input_shape[-1] != 3:
+            raise ValueError("The last matrix dimension must contain the 3 " +
+                             "magnetic field components.")
         bfield_num = np.prod( input_shape[:-1] )
         Bfields = np.reshape(Bfields, (bfield_num,3))
         
@@ -189,7 +189,11 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     coefficient_matrix = find_eigens_and_compose(Htot_gs = full_Htot_gs,
                                                  Htot_es=full_Htot_es,
                                                  correct_for_crossing = correct_for_crossing)
+    
+     #This is to avoid numerical errors, if the magnetic field vector is zero 
+     #then force the transformation matrix to be exactly the identity
     coefficient_matrix[norm_is_zero,:,:] = np.eye(rate_rows)
+                                                                            
     
     
     new_rates = np.matmul(np.square( np.abs(coefficient_matrix) ),
@@ -386,7 +390,9 @@ def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
 
 
 if __name__ == '__main__':
-    
+    """
+    Code testing section!
+    """
     import matplotlib.pyplot as plt
     
     
@@ -408,50 +414,3 @@ if __name__ == '__main__':
     plt.show()
     
     plt.plot(plotaxis,pl/pl.max())
-    """
-    
-    test_dic = {'kr' : 67.7,          # The radiative decay rate
-               'k36' : 6.4,          # Non-radiative to shelving, ms=0
-               'k45_6' : 50.7,       # Non-radiative to shelving, ms=+-1
-               'k60' : 0.7,          # Non-radiative from shelving to ms=0
-               'k6_12' : 0.6,        # Non-radiative from shelving to ms=+-1
-               'mw_rate' : 0,        # Microwave driving
-               'laser_pump' : 0.1}   # Laser driving, percentage of kr
-    iterdic = dict.fromkeys(test_dic.keys())
-    norms = Des/gamma2pi
-    ang = 10*np.pi/180#np.linspace(0,np.pi/2,1000)
-    ang2 = 0
-    Bfields = np.array([norms*cos(ang2)*np.sin(ang),norms*sin(ang2)*np.sin(ang),np.cos(ang)*norms])
-    
-    coeffs = np.linspace(1e-20,1e6,1000)
-    
-    pls = np.zeros(len(coeffs))
-    for ii,alpha in enumerate(coeffs):
-        for key,val in test_dic.items():
-            iterdic[key]=val*alpha
-        pl,_ = quenching_calculator(Bfields,nv_theta=0,correct_for_crossing=True,rate_dictionary=test_dic)
-        pls[ii] = pl
-    plt.plot(coeffs,pls)
-    
-    
-    mw_rate = 0.1
-    
-    rate = 0.1
-    
-        
-    curr_dic = {"laser_pump" : rate, "mw_rate" : mw_rate}
-    curr_dic_nomw = {"laser_pump" : rate}
-    
-    with_mw, _ = quenching_calculator(Bfields = Bfields,
-                                           rate_dictionary = curr_dic)
-    without_mw,pops = quenching_calculator(Bfields = Bfields,
-                                             rate_dictionary = curr_dic_nomw)
-    
-    contrasts = (without_mw - with_mw)/without_mw
-    no_mw_pl = without_mw
-    
-    plt.plot(plotaxis, without_mw)
-    
-    fig, ax = plt.subplots()
-    ax.plot(plotaxis, contrasts)
-    """
