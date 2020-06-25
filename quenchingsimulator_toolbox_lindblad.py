@@ -306,8 +306,7 @@ def lindblad_quench_simulator(Bfields = None, rate_dictionary = None,
     solver this problem will be fixed.
     """
     
-    #The pl rate is simply proportional to the excited populations,
-    #don't believe Tetienne!
+    #The pl rate is proportional to the excited populations in this picture
     pl_rate_out = np.sum(steady_states_out[:,3:6], axis = 1)
     
     
