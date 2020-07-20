@@ -2,7 +2,7 @@
 """
 Created on Fri May 10 21:50:15 2019
 
-@author: Lucio
+@author: Lucio Stefan
 """
 
 import numpy as np
@@ -103,7 +103,7 @@ def quenching_simulator(Bfields, rate_dictionary = None,
         If either nv_theta and nv_phi or both are arrays, it new dimensions are
         added as described for pl_rate_out.
     """
-    #All units are MHz
+    #Default rates. All units are MHz
     default_rate_dictionary = {'kr' : 32.2,           # The radiative decay rate
                                'k36' : 12.6,          # Non-radiative to shelving, ms=0
                                'k45_6' : 80.7,        # Non-radiative to shelving, ms=+-1
@@ -113,6 +113,15 @@ def quenching_simulator(Bfields, rate_dictionary = None,
                                'k_02'  : 0,           # Microwave driving (0->2)
                                'laser_pump' : 0.1}    # Laser driving, percentage of kr 
     
+    #If Bfields or Bias_field are python lists and not numpy arrays, cast them
+    #to numpy arrays
+    if isinstance(Bfields, list ):
+        Bfields = np.array(Bfields)
+    if Bias_field is not None and isinstance(Bias_field, list):
+        Bias_field = np.array(Bias_field)
+    
+    #If some keys of the dictionary are fed into the function, replace them into
+    #the dictionary
     if rate_dictionary is not None:
         for key, value in rate_dictionary.items():
             if key in default_rate_dictionary:
@@ -162,40 +171,34 @@ def quenching_simulator(Bfields, rate_dictionary = None,
         Bfields = np.reshape( Bfields, ( np.prod(Bfields.shape[:-1]), 3 ) )
         bfield_num = Bfields.shape[0]
         
-    #The unperturbed decay rates
+    #The unperturbed decay rates (a 7x7 matrix)
     zero_rates = zeroB_decay_mat(kr ,kr , kr,
                                  k36, k45_6, k45_6,
                                  k60, k6_12, k6_12,
                                  laser_pump = laser_pump,
                                  k_mw_01 = k_01, k_mw_02 = k_02)
     
-    new_rates = np.zeros( (bfield_num,) + zero_rates.shape  ) # matrix for decay rates
-    rate_equation_matrix = np.zeros((bfield_num,) + zero_rates.shape) # matrix for the rate equations
-    
     rate_rows, rate_cols = zero_rates.shape
-    
-    
-    solution_vector = np.zeros( (rate_rows,) )
-    solution_vector[0] = 1 #Impose that the sum of the populations needs to be 1
-    solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis],
-                                bfield_num, axis = 0)
-    steady_states = np.zeros( (bfield_num, rate_rows) )
-
-    norm_is_zero = (linalg.norm(Bfields, axis = 1) == 0)
 
     #Calculate the B field dependence
     full_Htot_gs = Htot_gs(Bfields)
     full_Htot_es = Htot_es(Bfields)
+    
+    #Obtain the coefficients of the new eigenstates, which are expressed as linear
+    #combinations of the zero-field eigenbasis. The coefficient matrix has shape of
+    #(bfield_num, 7, 7)
     coefficient_matrix = find_eigens_and_compose(Htot_gs = full_Htot_gs,
                                                  Htot_es=full_Htot_es,
                                                  correct_for_crossing = correct_for_crossing)
     
-     #This is to avoid numerical errors, if the magnetic field vector is zero 
-     #then force the transformation matrix to be exactly the identity
-    coefficient_matrix[norm_is_zero,:,:] = np.eye(rate_rows)
+    #This is to avoid numerical errors, if the magnetic field vector is zero 
+    #then force the transformation matrix to be exactly the identity
+    is_norm_zero = (linalg.norm(Bfields, axis = 1) == 0)
+    coefficient_matrix[is_norm_zero,:,:] = np.eye(rate_rows)
                                                                             
-    
-    
+    #Apply the coefficient matrix, which is also a transformation matrix, to the
+    #zero-field decay rates. new_rates = |coeff_mat|^2 . zero_rates . transpose(|coeff_mat|^2).
+    #The multiplication is applied along the first dimension of coefficient_matrix
     new_rates = np.matmul(np.square( np.abs(coefficient_matrix) ),
                                      np.matmul(zero_rates,
                                                np.square( np.abs(np.transpose(
@@ -205,6 +208,20 @@ def quenching_simulator(Bfields, rate_dictionary = None,
                                                )
                          )
 
+    #Create the solution column vector
+    solution_vector = np.zeros( (rate_rows,) )
+    solution_vector[0] = 1 #Impose that the sum of the populations needs to be 1
+    
+    #Create as many copies of the solution column vector as the magnetic fields
+    #vectors, creating a (bfield_num, 7, 1)-shaped matrix
+    solution_vector = np.repeat(solution_vector[np.newaxis,:,np.newaxis],
+                                bfield_num, axis = 0)
+    
+    #Take the rates, and combine them to form a matrix representing the system of
+    #linear equations, with shape (bfield_num, 7, 7). In each of the slices along
+    #the first dimensions, the first row is just ones. This imposes that the 
+    #sum of the populations is one (see above) and removes the first row (although
+    #any row is fine) which is linearly dependent on the others
     rate_equation_matrix = generate_rate_eq(new_rates)
     steady_states = linalg.solve(rate_equation_matrix, solution_vector)[:,:,0]
     
@@ -246,6 +263,8 @@ def zeroB_decay_mat(k30, k41, k52, #Radiative decay rates
                     k_mw_01 = 0, k_mw_02 = 0
                     ):
     
+    #Matrix to store the zero-field decay rates (without signs), stored as k_ij, 
+    #with 0<=i<=6 and 0<=j<=6
     matrix = np.array( [
                         [0, k_mw_01, k_mw_02, laser_pump*k30, 0, 0, 0],
                         [k_mw_01, 0, 0, 0, laser_pump*k41, 0, 0],
@@ -259,8 +278,10 @@ def zeroB_decay_mat(k30, k41, k52, #Radiative decay rates
 
 
 def generate_rate_eq(decay_matrix):
+    #Take the decay matrix, and rearrange it to generate the matrix representing
+    #the rate equations (understanding this step is easier with pen and paper!)
     rate_matrix = np.array(decay_matrix.transpose([0,2,1]))
-
+    
     di_inds = np.diag_indices(decay_matrix.shape[1])
     
     rate_matrix[:,di_inds[0],di_inds[1]] = (rate_matrix[:,di_inds[0],di_inds[1]]+
@@ -273,6 +294,12 @@ def generate_rate_eq(decay_matrix):
 def find_eigens_and_compose(Htot_gs = None, Htot_es = None,
                                  correct_for_crossing = False):
     
+    #This function calculates the two (bfield_num, 3, 3) coefficient matrices
+    #of the new ground and excited eigenstates, expressed in the zero-field
+    #eigenbasis. After this, place them  into a (bfield_num, 7, 7) block matrix.
+    #The top-left block contains the ground state coefficients, the middle block
+    #the excited state coefficients, the last block (one element) is the coefficient
+    #for the shelving state, which never changes with the magnetic field (spin singlet!)
     b_field_num = Htot_gs.shape[0]
 
     _, eistates_gs = linalg.eigh( Htot_gs )
@@ -336,6 +363,9 @@ def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
     #computation speed at its max. If they are not arrays, I avoid extra matrix
     #operations, e.g. the use of np.cos (slower than cos) and np.einsum.
     if ( type(nv_theta) is not np.ndarray ) and ( type(nv_phi) is not np.ndarray ):
+        #The rotation is already the product of two rotation matrices. The product
+        #is calculated by hand to save the unnecessary time spent into multiplying
+        #two matrices.
         rot_matrix = np.array([ [cos(nv_phi)*cos(nv_theta),
                                  sin(nv_phi)*cos(nv_theta),
                                  -sin(nv_theta)],
@@ -351,14 +381,16 @@ def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
         rotated = rotated[:,:,0]
         
     else:
-    
-        if type(nv_theta) is not np.ndarray:
+        #This part handles the cases in which nv_theta and nv_phi can be arrays.
+        #Casts them to np.ndarray instances if they are scalars, then add
+        #dimensions according to the dimensionality of nv_theta and nv_phi
+        if not isinstance(nv_theta, (np.ndarray, list) ):
             nv_theta = np.array([nv_theta])
             thetascalar = True
         else:
             thetascalar = False
             
-        if type(nv_phi) is not np.ndarray:
+        if not isinstance(nv_theta, (np.ndarray, list) ):
             nv_phi = np.array([nv_phi])
             phiscalar = True
         else:
