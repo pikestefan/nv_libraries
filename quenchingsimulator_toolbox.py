@@ -74,10 +74,13 @@ def quenching_simulator(Bfields, rate_dictionary = None,
     
     Parameters
     ----------
-    Bfields: np.ndarray
+    Bfields: np.ndarray or list
         array with shape (3,) or (N1,..., Nmax,3)
     rate_dictionary: dictionary
         A dictionary with the decay rates, including pump rate and mw_pump rate.
+        If only few rates in the dictionary need to be modified, there's no need
+        to input the whole rate dictionary. The remaining keys will retain the default values.
+        Ex: quenching_simulator(..., rate_dictionary = {'kr' = 999, 'k_01': 123 })
     nv_theta: float or array_like, optional
         The NV azimuthal angle in the lab frame. It can be either a scalar value
         or a one-dimensional numpy array. Default is ~0.955 rad (54.7 deg).
@@ -85,22 +88,22 @@ def quenching_simulator(Bfields, rate_dictionary = None,
         The NV equatorial angle in the lab frame. It can be either a scalar or 
         a numpy array. Default is 0.
     rate_coeff: float
-        The coefficient which simulates the collection efficiency.
-    Bias_field: np.array
+        The coefficient which simulates the collection efficiency. 
+    Bias_field: np.array or list
         A (3,)-shaped array which represent a Bias field in the lab frame.
     Returns
     -------
     pl_rate_out: np.ndarray
-        Matrix containing the PL of the NV (in MHz). If nv_theta and nv_phi are
-        scalars, it has shape Bfields.shape[0:-1]. If one of the two angles is
-        an array, the output shape is angle.shape + Bfields.shape[0:-1].
+        Matrix containing the PL of the NV (in MHz or the unit chosen by the user). 
+        If nv_theta and nv_phi are scalars, it has shape Bfields.shape[0:-1]. 
+        If one of the two angles is an array, the output shape is angle.shape + Bfields.shape[0:-1].
         If both angles are arrays, the output shape is nv_theta.shape + 
         nv_phi.shape + Bfields.shape[0:-1].
     steady_states_out: np.ndarray
         Array containing the steady states populations, normalised to
         sum(n_i, i = {0,6}) = 1. It has shape Bfields.shape[0:-1] + (7,).
         E.g., if Bfields.shape = (10,20,3) -> steady_states_out.shape = (10,20,7).
-        If either nv_theta and nv_phi or both are arrays, it new dimensions are
+        If either nv_theta and nv_phi or both are arrays, new dimensions are
         added as described for pl_rate_out.
     """
     #Default rates. All units are MHz
@@ -362,7 +365,7 @@ def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
     #I distinguish between the case of two scalar angles and the rest to keep
     #computation speed at its max. If they are not arrays, I avoid extra matrix
     #operations, e.g. the use of np.cos (slower than cos) and np.einsum.
-    if ( type(nv_theta) is not np.ndarray ) and ( type(nv_phi) is not np.ndarray ):
+    if (not isinstance(nv_theta, (np.ndarray, list)) ) and (not isinstance(nv_phi, (np.ndarray, list)) ):
         #The rotation is already the product of two rotation matrices. The product
         #is calculated by hand to save the unnecessary time spent into multiplying
         #two matrices.
@@ -381,20 +384,23 @@ def rotate2nvframe(vectors2transform, nv_theta = 0, nv_phi = 0):
         rotated = rotated[:,:,0]
         
     else:
-        #This part handles the cases in which nv_theta and nv_phi can be arrays.
+        #This part handles the cases in which nv_theta and nv_phi can be arrays
+        #(or python lists).
         #Casts them to np.ndarray instances if they are scalars, then add
         #dimensions according to the dimensionality of nv_theta and nv_phi
-        if not isinstance(nv_theta, (np.ndarray, list) ):
+        thetascalar = False
+        if ( not isinstance(nv_theta, (np.ndarray, list) ) ):
             nv_theta = np.array([nv_theta])
             thetascalar = True
-        else:
-            thetascalar = False
+        elif isinstance(nv_theta, list ):
+            nv_theta = np.array(nv_theta)
             
-        if not isinstance(nv_theta, (np.ndarray, list) ):
+        phiscalar = False  
+        if ( not isinstance(nv_phi, (np.ndarray, list) ) ):
             nv_phi = np.array([nv_phi])
             phiscalar = True
-        else:
-            phiscalar = False
+        elif isinstance(nv_phi, list ):
+            nv_phi = np.array(nv_phi)
             
             
         rot_matrix = np.array([
@@ -436,13 +442,13 @@ if __name__ == '__main__':
     plotaxis = norms#ang * 180/np.pi
     
     Bfields = np.stack((norms*cos(ang2)*np.sin(ang),norms*sin(ang2)*np.sin(ang),np.cos(ang)*norms),axis = 1)
+
+    pl,pops = quenching_simulator(Bfields, Bias_field = [0,0,1e-3],nv_theta=[0,0.1],correct_for_crossing=True)
     
-      
-    
-    pl,pops = quenching_simulator(Bfields,nv_theta=0,correct_for_crossing=True)
-    
+    """
     for pop in pops[:,:].T:
         plt.plot(plotaxis,pop)
     plt.show()
     
     plt.plot(plotaxis,pl/pl.max())
+    """
