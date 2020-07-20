@@ -266,8 +266,8 @@ def zeroB_decay_mat(k30, k41, k52, #Radiative decay rates
                     k_mw_01 = 0, k_mw_02 = 0
                     ):
     
-    #Matrix to store the zero-field decay rates (without signs), stored as k_ij, 
-    #with 0<=i<=6 and 0<=j<=6
+    #Matrix to store the zero-field (both excitationa and decay) rates (without signs),
+    #stored as k_ij,  with 0<=i<=6 and 0<=j<=6
     matrix = np.array( [
                         [0, k_mw_01, k_mw_02, laser_pump*k30, 0, 0, 0],
                         [k_mw_01, 0, 0, 0, laser_pump*k41, 0, 0],
