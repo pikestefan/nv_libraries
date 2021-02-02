@@ -107,11 +107,11 @@ def quenching_simulator(Bfields, rate_dictionary = None,
         added as described for pl_rate_out.
     """
     #Default rates. All units are MHz
-    default_rate_dictionary = {'kr' : 32.2,           # The radiative decay rate
-                               'k36' : 12.6,          # Non-radiative to shelving, ms=0
-                               'k45_6' : 80.7,        # Non-radiative to shelving, ms=+-1
-                               'k60' : 3.1,           # Non-radiative from shelving to ms=0
-                               'k6_12' : 2.5,         # Non-radiative from shelving to ms=+-1
+    default_rate_dictionary = {'kr' : 65,             # The radiative decay rate
+                               'k36' : 11,            # Non-radiative to shelving, ms=0
+                               'k45_6' : 80,          # Non-radiative to shelving, ms=+-1
+                               'k60' : 3,             # Non-radiative from shelving to ms=0
+                               'k6_12' : 2.6,         # Non-radiative from shelving to ms=+-1
                                'k_01'  : 0,           # Microwave driving (0->1)
                                'k_02'  : 0,           # Microwave driving (0->2)
                                'laser_pump' : 0.1}    # Laser driving, percentage of kr 

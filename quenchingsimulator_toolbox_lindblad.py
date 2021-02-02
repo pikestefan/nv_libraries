@@ -180,14 +180,14 @@ def lindblad_quench_simulator(Bfields = None, rate_dictionary = None,
     ###########################################
     """
     
-    default_rate_dictionary = {'kr' : 32.2e6,        # The radiative decay rate
-                               'k36' : 12.6e6,       # Non-radiative to shelving, ms=0
-                               'k45_6' : 80.7e6,     # Non-radiative to shelving, ms=+-1
-                               'k60' : 3.1e6,        # Non-radiative from shelving to ms=0
-                               'k6_12' : 2.5e6,      # Non-radiative from shelving to ms=+-1
-                               'kmw_01' : 0,          # Microwave driving
-                               'kmw_02' : 0,          # Microwave driving
-                               'laser_pump' : 0.1}   # Laser driving, percentage of kr 
+    default_rate_dictionary = {'kr' : 65,             # The radiative decay rate
+                               'k36' : 11,            # Non-radiative to shelving, ms=0
+                               'k45_6' : 80,          # Non-radiative to shelving, ms=+-1
+                               'k60' : 3,             # Non-radiative from shelving to ms=0
+                               'k6_12' : 2.6,         # Non-radiative from shelving to ms=+-1
+                               'kmw_01'  : 0,           # Microwave driving (0->1)
+                               'kmw_02'  : 0,           # Microwave driving (0->2)
+                               'laser_pump' : 0.1}    # Laser driving, percentage of kr 
     if rate_dictionary is not None:
         for key, value in rate_dictionary.items():
             if key in default_rate_dictionary:
