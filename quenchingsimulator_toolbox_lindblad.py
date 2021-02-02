@@ -2,7 +2,7 @@
 """
 Created on Thu Aug 01 10:50:15 2019
 
-@author: Lucio
+@author: Lucio Stefan, lucio.stefan@gmail.com
 
 
 This is a temporary library. Bugs need to be fixed! The main issue arises when
