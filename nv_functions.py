@@ -16,6 +16,7 @@ import warnings
 from math import pi, sin, cos, sqrt
 import scipy.fftpack as fft
 
+mu0 = const.mu_0
 g_fact,_,_ = const.physical_constants['electron g factor']
 g_fact = abs(g_fact)
 bohr_mag,_,_ = const.physical_constants["Bohr magneton"]
@@ -371,7 +372,7 @@ def _multi_lorentz( f, params, dip_number = 2):
         lorentz_line =  ( amps[:, None] *
                          np.square(widths[:,None]) / 
                          ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
-        lorentz_line = intensity * (1 - np.sum(lorentz_line, axis = 0) )
+        lorentz_line = intensity *(1 - np.sum(lorentz_line, axis = 0) )
         return  lorentz_line
     
 def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = None,
@@ -489,6 +490,30 @@ def check_neighbour_pixel(input_matrix, index_tuple, neighbours = 1,  empty_valu
     if ~np.isnan(empty_value):
         sub_mat[sub_mat == empty_value] = np.nan
     return np.nanmean(sub_mat)
+
+def get_pixel_neighbourhood(input_matrix, index_tuple, neighbours = 1):
+    """
+    Takes a (M,N) matrix and check the n nearest neighbours at the index tuple.
+    Returns their average value.
+    Inputs:
+        - the (M,N) numpy array
+        - index_tuple: index tuple
+        - neighbours: how many nearest neighbours to check
+    Returns:
+        the average of the n nearest neighbours of index_tuple.
+    """
+    size_x, size_y = input_matrix.shape
+    ii, jj = index_tuple
+        
+    
+    xlowbound, xhighbound = (ii - neighbours if (ii-neighbours >= 0 ) else 0,
+                             ii+neighbours+1 if (ii+neighbours + 1 < size_x) else size_x )
+    ylowbound, yhighbound = (jj - neighbours if (jj-neighbours >= 0 ) else 0,
+                             jj+neighbours+1 if (jj+neighbours +1 < size_y) else size_y )
+
+    sub_mat = np.array(input_matrix[ xlowbound : xhighbound, ylowbound : yhighbound ])
+    
+    return sub_mat
 
 def select_region(input_matrix, index_tuple, neighbours = (1, 1)):
     """
@@ -728,7 +753,7 @@ def mag_components_from_resonances(nu_minus_mat = None, nu_plus_mat = None, Dspl
     Bort =  (Dsplit * Bnorm_sq - Delta) / (2 * Dsplit) / gamma
     return Bpar, Bort
 
-def get_matrix_neighbourhoods(matrix, neighbourhood = 1):
+def get_matrix_neighbourhoods(matrix, neighbourhood = 1, **kwargs):
     """
     Returns a 3D matrix containing the neighbourhood of each matrix element
     
@@ -738,14 +763,24 @@ def get_matrix_neighbourhoods(matrix, neighbourhood = 1):
         The 2D matrix.
     neighbourhood : int, optional
         The neighbourhood of the pixel
+        
+    Optional Parameters
+    -------------------
+    **kwargs are passed to numpy.pad function
 
     Returns
     -------
-    arr_view : (M * N, neighbourhood, neighbourhood) numpy.ndarray
-        The matrix containing the neighbourhoods.
+    arr_view:  numpy.ndarray
+        The matrix containing the neighbourhoods, has (M * N, neighbourhood, neighbourhood)
+        shape
     
     """
-    padded = np.pad(matrix, neighbourhood, mode = 'constant', constant_values = 0)
+    
+    mode = kwargs.pop('mode', 'constant')
+    constant_values = kwargs.pop('constant_values', 0)
+    
+    padded = np.pad(matrix, neighbourhood, mode = mode,
+                    constant_values = constant_values, **kwargs)
     
     sub_shape =( neighbourhood*2 + 1, ) * 2
     view_shape = tuple(np.subtract(padded.shape, sub_shape) + 1) + sub_shape
@@ -814,10 +849,77 @@ def Bfield_fromBnv(Bnv_matrix = None, nv_theta = 54.7*np.pi /180, nv_phi = 0,
     
     B_kspace_stack = np.stack( (Bx_kspace, By_kspace, Bz_kspace), axis = 2)
     Br_reconstructed = fft.ifft2(B_kspace_stack, axes = (0,1) ).real
-    
     return Br_reconstructed
 
-def Bfield_fromM(Mx = None, My = None, Mz = None, X_array = None, Y_array = None, mat_thick= 10, stray_height = 100):
+def Bfield_fromM_fourier( mag_3dmatrix, x_array, y_array, 
+                         z = 0, thickness = 1e-9, delta = 1e-100 ):
+    """
+    Parameters
+    ----------
+    mag_3dmatrix : np.ndarray
+        Matrix with shape (M, N, 3). The last three dimensions contain the three
+        components of the magnetisation.
+    x_array : np.array
+        1d array with length N. The x axis of the 2d image.
+    y_array : np.array
+        1d array with length M. The y axis of the 2d image.
+    z : scalar or np.array, optional
+        The distance from the surface at which the field is probed. It can be 
+        a scalar or a list of values. Default is 0.
+    thickness: float, optional
+        The thickness of the magnetic layer. Default is 1e-9.
+    delta : float, optional
+        The small number used to avoid division by zero. The default is 1e-100.
+
+    Returns
+    -------
+    bfield : np.ndarray
+        The matrix with the stray fields components. If z is an array, it has
+        shape (len(z), M, N, 3),  (M, N, 3) otherwise.
+    """
+    
+    mag_fourier = fft.fft2(mag_3dmatrix, axes = (0,1))
+    
+    if isinstance(z, list):
+        z = np.array(z)
+    elif isinstance(z, (int, float, complex)):
+        z = np.array([z])
+    
+    kx = 2 * np.pi * fft.fftfreq( len(x_array), d = abs(x_array[1]-x_array[0]) )
+    ky = 2 * np.pi * fft.fftfreq( len(y_array), d = abs(y_array[1]-y_array[0]) )
+    
+    Kx, Ky = np.meshgrid(kx, ky)
+    
+    K = np.sqrt( np.square(Kx) + np.square(Ky) )
+    K[K==0] = delta
+    
+    dip_tensor = np.zeros( (len(z),) + Kx.shape +  (3, 3), dtype = complex )
+
+    dip_tensor[...,0,0] = -np.square(Kx/K)
+    dip_tensor[...,0,1] = -Kx*Ky/np.square(K)
+    dip_tensor[...,0,2] = -1j * Kx/K
+    dip_tensor[...,1,0] = dip_tensor[...,0,1]
+    dip_tensor[...,1,1] = -np.square(Ky/K)
+    dip_tensor[...,1,2] = -1j * Ky/K
+    dip_tensor[...,2,0] = dip_tensor[...,0,2]
+    dip_tensor[...,2,1] = dip_tensor[...,1,2]
+    dip_tensor[...,2,2] = 1
+
+    #Add dimensions for broadcasting
+    K = K[..., None, None] #
+    z = z[:,None, None, None, None]
+    dip_tensor *= (mu0/2) * ( np.exp( -K * z ) - np.exp( -K * (z+thickness) ) )
+    
+    bfield_kspace = np.einsum('lijmk,ijk->lijm', dip_tensor, mag_fourier)
+    
+    bfield = fft.ifft2( bfield_kspace, axes = (1,2) ).real
+    
+    if len(z) == 1:
+        bfield = bfield[0]
+    
+    return bfield
+
+def Bfield_fromM_realspace(Mx = None, My = None, Mz = None, X_array = None, Y_array = None, mat_thick= 10, stray_height = 100):
     #input lengths are in nm
     
     #Point spread function
@@ -865,5 +967,5 @@ def Bfield_fromM(Mx = None, My = None, Mz = None, X_array = None, Y_array = None
 if __name__ == "__main__"   :
     #Code testing section!
     A = np.reshape(np.arange(0,25), (5,5))
-    B = get_matrix_neighbourhoods(A, 2)
+    B = get_matrix_neighbourhoods(A, 2, constant_values = -1)
     

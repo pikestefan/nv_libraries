@@ -44,7 +44,7 @@ def median_correction(data_2d, add_mean = False):
     Corrects line error in AFM scans by removing the median of the slow axis
     """
     
-    return data_2d - np.median(data_2d, axis = 0) + add_mean * data_2d.mean()
+    return data_2d - np.median(data_2d, axis=0) + add_mean * data_2d.mean()
 
 def polyline_correction( data_2d, degree = 1,  add_mean = False, fit_pars = None):
     
