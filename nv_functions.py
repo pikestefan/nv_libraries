@@ -547,15 +547,15 @@ def angle_dependent_splitting( Bnorm, Btheta = 0, Bphi = 0, NVtheta = 0, NVphi =
 def fit_nv_angle( phi_sweep_and_split = None, theta_sweep_and_split = None, Bnorm = None, 
                  fixed_theta = 0, fixed_phi = 0, Esplit = 0, x0 = [0,0], *args, **kwargs):
     """
-    Fit the NV azimuthal and equatorial angles. Does a combined fit of an
-    azimuthal angle sweep and an equatorial angle sweep. Sorry for the terrible list names!
+    Fit the NV azimuthal and polar angles. Does a combined fit of an
+    azimuthal angle sweep and an polar angle sweep. Sorry for the terrible list names!
     Inputs:
         -phi_sweep_and_split: the ESR ***splitting***, fixed theta and sweeping phi
         -theta_sweep_and_split: the ESR ***splitting***, fixed phi and sweep theta
         - Bnorm: the magnetic field norm. Default is None. If None, it will be
                  used as a free parameter in the fit
-        -fixed_theta: the fixed azimuthal angle when you sweep the equatorial angle
-        -fixed_phi  the fixed equatorial angle when you sweep the azimuthal angle
+        -fixed_theta: the fixed polar angle when you sweep the equatorial angle
+        -fixed_phi  the fixed azimuthal angle when you sweep the polar angle
         -Esplit: the strain splitting (ideally coming from the fit of a zero-field ESR!)
         -x0: the initial guess for minimisation. Shape needs to be (3,) when Bnorm is None, (2,)
             otherwise
