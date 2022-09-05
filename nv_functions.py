@@ -15,6 +15,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import warnings
 from math import pi, sin, cos, sqrt
 import scipy.fftpack as fft
+from lmfit import Model, Parameters
 
 mu0 = const.mu_0
 g_fact,_,_ = const.physical_constants['electron g factor']
@@ -31,30 +32,6 @@ Sy = np.array( [ [0, 1, 0], [-1, 0, 1], [0, -1, 0] ] ) / ( 1j * sqrt(2) )
 Sx_sq = Sx.dot(Sx)
 Sy_sq = Sy.dot(Sy)
 Sz_sq = Sz.dot(Sz)
-
-def eival_finder(hermitian_matrix):
-    """
-    Legacy function.
-    With bugs: should find eigenfreequncies for a list of 3x3 hamiltonians or for a single hamiltonian
-    """
-    if hermitian_matrix.shape == (3, 3):
-        freq_0, freq_1, freq_2 = la.eigh(hermitian_matrix, eigvals_only = True)
-        
-        f1 = freq_1 - freq_0
-        f2 = freq_2 - freq_0
-        
-    else:
-        f1 = np.array([])
-        f2 = np.array(f1)
-        
-        for matrix in hermitian_matrix:
-            
-            freq_0, freq_1, freq_2 = la.eigh(matrix, eigvals_only = True)
-
-            f1 = np.append(f1, freq_1 - freq_0 )
-            f2 = np.append(f2, freq_2 - freq_0)
-        
-    return f1, f2
 
 def polar_field(Bnorm, theta, phi):
     """
@@ -81,23 +58,6 @@ def polar_field(Bnorm, theta, phi):
                       Bnorm * np.sin(theta) * np.sin(phi), 
                       Bnorm * np.cos(theta) ), axis = len(the_shape) )
 
-def zeeman_interaction(hamiltonian_no_field, threeD_Bfield):
-    """
-    Legacy function.
-    Adds the zeeman interaction to a zero-field hamiltonian
-    """
-    
-    Bx, By, Bz = threeD_Bfield
-    
-    return hamiltonian_no_field + gamma * (Bx * Sx + By * Sy  + Bz * Sz)
-
-def zeeman_interaction_nophidep(hamiltonian_no_field, Bz, Bort):
-    """
-    Legacy function.
-    Adds the zeeman interaction to a zero-field hamiltonian, assuming cylindrical symmetry around z (as the NV)
-    """
-    
-    return hamiltonian_no_field + gamma * (Bort * Sx  + Bz * Sz)
 
 def strayB_on_NV_components(Bfields, nv_theta, nv_phi):
     """
@@ -127,66 +87,6 @@ def strayB_on_NV_components(Bfields, nv_theta, nv_phi):
     
     return Bparallel.reshape(input_shape[:-1]), Bort_norm.reshape(input_shape[:-1])
 
-def arrange_folder_with_names(file_list, patterns, dict_keys = None):
-    """
-    Legacy function.
-    Loads a list of filenames, finds a single number (i.e. a the distance from the surface)
-    and saves the strings containing the same number under the same key of a dictionary.
-    """
-    
-    if dict_keys is None:
-        keys = np.arange(0,len(patterns))
-        dictionary = dict.fromkeys(keys, None)
-    else:
-        dictionary = dict.fromkeys(dict_keys, None)
-    
-    def match_string(string, pattern):
-        #works only for single match (i.e. match number in string)
-        matched = re.match(pattern, string)
-        if matched is not None:
-            matched_array = [ matched_group for  matched_group in matched.groups() ]
-            return np.array( matched_array )
-        else:
-            pass
-    
-    dict_keys = list(dictionary.keys())
-    for index, pattern in enumerate(patterns):
-        
-        values = np.array([ match_string(string, pattern) 
-                           for string in file_list if match_string(string, pattern) is not None])
-        dictionary[dict_keys[index]] = values
-        
-    return dictionary
-
-def point_eigenvalue_solver(threeD_Bfield, nv_theta, nv_phi, hamiltonian_no_field, return_eistates = False):
-    """
-    Legacy function.
-    Solves a zero-field+Zeeman hamiltonian for a single B field value. Does the combined job of:
-    - strayB_on_NV_components
-    - zeeman_interaction_nophidep
-    - eival_finder
-    
-    Written to speed up calculations
-    """
-      
-    NV_axis = np.array([np.sin(nv_theta) * np.cos(nv_phi), np.sin(nv_theta) * np.sin(nv_phi), np.cos(nv_theta)])
-    
-    Bparallel_norm = np.dot(threeD_Bfield, NV_axis)
-    Bort_norm = np.sqrt( np.square(np.linalg.norm(threeD_Bfield)) - np.square(Bparallel_norm) )
-    
-    tot_hamiltonian = hamiltonian_no_field + gamma * (Bort_norm * Sx  + Bparallel_norm * Sz)
-    
-    
-    
-    if return_eistates:
-        eivals, eivectors  = la.eigh(tot_hamiltonian)
-        freq_0, freq_1, freq_2 = eivals
-        eiv0, eiv1, eiv2 = eivectors[:,0], eivectors[:,1], eivectors[:,2]
-        return (eiv0, eiv1, eiv2), (freq_1 - freq_0, freq_2 - freq_0)
-    else:
-        freq_0, freq_1, freq_2 = la.eigh(tot_hamiltonian, eigvals_only = True)
-        return freq_1 - freq_0, freq_2 - freq_0
-    
 def vectorised_eigenvalue_solver(Bfields, nv_theta = 0, nv_phi = 0, Dsplit = 2.87e9, Esplit = 0,
                                  return_eistates = False):
     """
@@ -362,18 +262,158 @@ def nv_eigenfrequencies_analytical(Bnorm = 0, Btheta = 0, Bphi = 0, Dsplit = 2.8
     else:
         return eival2, eival1, eival3
     
-def _multi_lorentz( f, params, dip_number = 2):
-        np_params = np.array(params)
-        f0 = np_params[0:dip_number]
-        widths = np_params[dip_number: 2 * dip_number]
-        amps = np_params[2 * dip_number: 3 * dip_number]
-        intensity = np_params[-1]
+def single_lorentz( f, f0, width, contrast):
+    lorentz_line = contrast * (width/2)**2 / ( (f - f0)**2 + (width/2)**2 ) 
+    lorentz_line = lorentz_line
+    return  lorentz_line
+
+def baseline(f, intensity):
+    return intensity * np.ones(f.shape)
+
+class odmr_fitter(object):
+    def __init__(self, dip_number, freq_guess=None, contrast_guess=None, linewidth_guess=None, **kwargs):
+        self.dip_number = dip_number
+        self.freq_guess = freq_guess
+        self.contrast_guess = contrast_guess
+        self.linewidth_guess = linewidth_guess
+        self.smoothed_data = kwargs.get( 'smoothed_data', None )
+        self.max_nfev =  kwargs.get( 'max_nfev', 10000 )
+        self.index_parameter = kwargs.get( 'index_parameter', None )
+        self.bounds = kwargs.get( 'bounds', None )
+        self.kwargs = kwargs
         
-        lorentz_line =  ( amps[:, None] *
-                         np.square(widths[:,None]) / 
-                         ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
-        lorentz_line = intensity *(1 - np.sum(lorentz_line, axis = 0) )
-        return  lorentz_line
+        self.parameters = Parameters()
+        
+        self._model = None
+        self._prefix = "l{:d}_"
+        
+        self._make_model()
+        if self.freq_guess is not None:
+            self.set_frequency_guess(self.freq_guess)
+        if self.contrast_guess:
+            self.set_contrast_guess(self.contrast_guess)
+        if self.linewidth_guess:
+            self.set_linewidth_guess(self.contrast_guess)
+        if self.bounds is not None:
+            self.set_bounds(self.bounds)
+        
+    def _make_model(self):
+        for ii in range(self.dip_number):
+            prefix = self._dipprefix(ii)
+            if ii == 0:
+                self._model = Model(single_lorentz, prefix=prefix)
+            else:
+                self._model += Model(single_lorentz, prefix=prefix)
+        
+        self._model = Model(baseline) - Model(baseline, prefix='_') * self._model
+        
+        self.parameters = self._model.make_params()
+        self.parameters['intensity'].min = 0
+        self.parameters['_intensity'].expr = 'intensity'
+        for ii in range(self.dip_number):
+            prefix = self._dipprefix(ii)
+            self.parameters[prefix + 'f0'].min = 0
+            self.parameters[prefix + 'f0'].value = 2.87e9
+            self.parameters[prefix + 'width'].min = 0
+            self.parameters[prefix + 'width'].value = 1e6
+            self.parameters[prefix + 'contrast'].min = 0
+            self.parameters[prefix + 'contrast'].max = 1
+            self.parameters[prefix + 'contrast'].value = 0.1
+    
+    def set_frequency_guess(self, freq_guess, dip_number = None):
+        if isinstance(freq_guess, (list, np.ndarray)) and (len(freq_guess) != self.dip_number):
+            raise ValueError("The length of guesses needs to be equal to the number of dips.")
+        if dip_number is None:
+            self.freq_guess = freq_guess
+            for ii, guess in enumerate(self.freq_guess):
+                prefix = self._dipprefix(ii)
+                self.parameters[prefix + 'f0'].value = guess
+        else:
+            self.freq_guess[dip_number] = freq_guess
+            self.parameters[self._dipprefix(dip_number) + 'f0'].value = freq_guess
+          
+    def set_contrast_guess(self, contrast_guess, dip_number = None):
+        if isinstance(contrast_guess, (list, np.ndarray)) and (len(contrast_guess) != self.dip_number):
+            raise ValueError("The length of guesses needs to be equal to the number of dips.")
+        if dip_number is None:
+            self.contrast_guess = contrast_guess
+            for ii, guess in enumerate(self.contrast_guess):
+                prefix = self._dipprefix(ii)
+                self.parameters[prefix + 'contrast'].value = guess
+        else:
+            self.contrast_guess[dip_number] = contrast_guess
+            self.parameters[self._dipprefix(dip_number) + 'contrast'].value = contrast_guess
+        
+    def set_linewidth_guess(self, linewidth_guess, dip_number = None):
+        if isinstance(linewidth_guess, (list, np.ndarray)) and (len(linewidth_guess) != self.dip_number):
+            raise ValueError("The length of guesses needs to be equal to the number of dips.")
+        if dip_number is None:
+            self.linewidth_guess = linewidth_guess
+            for ii, guess in enumerate(self.linewidth_guess):
+                prefix = self._dipprefix(ii)
+                self.parameters[prefix + 'width'].value = guess
+        else:
+            self.linewidth_guess[dip_number] = linewidth_guess
+            self.parameters[self._dipprefix(dip_number) + 'width'].value = linewidth_guess
+            
+    def set_bounds(self, bound_dictionary):
+        self.bounds = bound_dictionary
+        for parameter, subdict in bound_dictionary.items():
+            for dip_num, bounds in subdict.items():
+                par_name = self._dipprefix(dip_num) + parameter
+                self.parameters[par_name].min = bounds[0]
+                self.parameters[par_name].max = bounds[1]
+    
+    def _dipprefix(self, dip_index):
+        return self._prefix.format(dip_index)
+    
+    def peak_autofinder(self, freqs, odmr_data):
+        if self.smoothed_data is not None:
+            data_4_guess = self.smoothed_data
+        else:
+            data_4_guess = odmr_data
+        
+        height = self.kwargs.get( 'height', None )
+        threshold = self.kwargs.get( 'threshold', None )
+        distance = self.kwargs.get( 'distance', None )
+        prominence = self.kwargs.get( 'prominence', None )
+        width = self.kwargs.get( 'width', None )
+        wlen = self.kwargs.get( 'wlen', None )
+        rel_height = self.kwargs.get( 'rel_height', 0.5 )
+        
+        found_pks, _ = sci_sig.find_peaks( 1 - data_4_guess / data_4_guess.mean(),
+                                          height = height, threshold = threshold, distance = distance, prominence = prominence, 
+                                          width = width, wlen = wlen, rel_height = rel_height)
+        if len( found_pks ) < self.dip_number:
+            raise( Exception( "Found dips are less than the input dip number." ) )
+        max_amps = data_4_guess[found_pks]
+        #sorted_amps = max_amps.sort()
+        #print(max_amps.sort())
+        found_pks = found_pks[max_amps.argsort()]
+        
+        self.set_frequency_guess(freqs[ found_pks[0:self.dip_number] ])
+    
+    
+    def fit(self, frequency, data):
+        self.parameters['intensity'].value = data.mean()
+        if self.freq_guess is None:
+            self.peak_autofinder(frequency, data)
+        fit_results = self._model.fit(data, params=self.parameters, f = frequency,
+                                      max_nfev=self.max_nfev)
+        return fit_results, self._model
+    
+def multi_lorentz( f, params, dip_number = 2):
+    np_params = np.array(params)
+    f0 = np_params[0:dip_number]
+    widths = np_params[dip_number: 2 * dip_number]
+    amps = np_params[2 * dip_number: 3 * dip_number]
+    intensity = np_params[-1]
+    
+    lorentz_line =  ( amps[:, None] *
+                     np.square(widths[:,None]) / 
+                     ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
+    lorentz_line = intensity *(1 - np.sum(lorentz_line, axis = 0) )
+    return  lorentz_line
     
 def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = None,
              linewid_guess = None, bounds = None, **kwargs ):
@@ -385,8 +425,7 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
     Optional kwargs are:
         - smoothed data: an array of smoothed data, to help improve peak finding
         - index_parameter: value which is printed in the error message when the fit fails
-                            (useful when the fit is in a loop)
-        - show_guess: return points of frequency guess                    
+                            (useful when the fit is in a loop)                  
         - all the keyword arguments of scipy.signal.find_peaks
         - gtol of scipy.optimize.curve_fit
         - max_nfev of gtol of scipy.optimize.curve_fit
@@ -396,7 +435,7 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
         - covariance matrix
         - an array of the fitted data
         - fail fit flag
-        - (if show_guess == True) the guessed frequencies
+        - the guessed frequencies
         
         
     If the fitting fails, it returns a NaN
@@ -427,8 +466,6 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
                                           width = width, wlen = wlen, rel_height = rel_height)
         if len( found_pks ) < dip_number:
             print(found_pks)
-            plt.plot(freqs, 1 - data_4_guess / data_4_guess.mean())
-            plt.show()
             raise( Exception( "Found dips are less than the input dip number." ) )
         max_amps = data_4_guess[found_pks]
         #sorted_amps = max_amps.sort()
@@ -441,7 +478,7 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
     if linewid_guess is None:
         linewid_guess = 1e6 * np.ones( (dip_number,)  )
     
-    fit_func = lambda x, *pars: _multi_lorentz(x, pars, dip_number = dip_number)
+    fit_func = lambda x, *pars: multi_lorentz(x, pars, dip_number = dip_number)
     
     init_guesses = np.concatenate( (freq_guess, linewid_guess, amp_guess, [odmr_data.mean()]) )
     
@@ -451,7 +488,7 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
         opt_pars, cov_mat = sci_opt.curve_fit( fit_func, freqs, odmr_data, p0 = init_guesses,
                                                bounds = bounds, maxfev = maxfev,
                                                gtol = gtol)
-        fitted_data = _multi_lorentz( freqs, opt_pars, dip_number = dip_number )
+        fitted_data = multi_lorentz( freqs, opt_pars, dip_number = dip_number )
     except:
         opt_pars = np.repeat(np.nan, len(init_guesses))
         cov_mat = np.full((len(init_guesses), len(init_guesses)), np.nan)
@@ -459,10 +496,8 @@ def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = N
         fail_fit_flag = 1
         print("Failed: fit did not converge. Position is: {}".format(index_parameter) )
     
-    if show_guess == True:
-        return opt_pars, cov_mat, fitted_data, fail_fit_flag, freq_guess
-    else:
-        return opt_pars, cov_mat, fitted_data, fail_fit_flag
+    return opt_pars, cov_mat, fit_func, fail_fit_flag, freq_guess
+
             
 def check_neighbour_pixel(input_matrix, index_tuple, neighbours = 1,  empty_value = np.nan):
     """
