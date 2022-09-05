@@ -271,6 +271,30 @@ def baseline(f, intensity):
     return intensity * np.ones(f.shape)
 
 class odmr_fitter(object):
+    """
+    Class to initialize an odmr fitter based on lmfit Models. If the guesses
+    for the peak frequencies are not set calling set_frequency_guess before 
+    calling the fit method, an  automatic dip search based on scipy.signal.find_peaks
+    is started. Frequency, contrast and linewidth guesses can be provided when
+    the class in initialized, or later by calling the methods set_frequency_guess, 
+    set_contrast_guess and set_linewidth_guess. 
+    To fit the data, call the .fit method.
+    Optional kwargs are:
+        - smoothed data: an array of smoothed data, to help improve peak the autofinding                 
+        - gtol of scipy.optimize.curve_fit
+        - max_nfev
+        - 
+        
+    Returns:
+        - optimal parameters
+        - covariance matrix
+        - an array of the fitted data
+        - fail fit flag
+        - the guessed frequencies
+        
+        
+    If the fitting fails, it returns a NaN
+    """
     def __init__(self, dip_number, freq_guess=None, contrast_guess=None, linewidth_guess=None, **kwargs):
         self.dip_number = dip_number
         self.freq_guess = freq_guess
@@ -387,14 +411,28 @@ class odmr_fitter(object):
         if len( found_pks ) < self.dip_number:
             raise( Exception( "Found dips are less than the input dip number." ) )
         max_amps = data_4_guess[found_pks]
-        #sorted_amps = max_amps.sort()
-        #print(max_amps.sort())
         found_pks = found_pks[max_amps.argsort()]
         
         self.set_frequency_guess(freqs[ found_pks[0:self.dip_number] ])
     
     
     def fit(self, frequency, data):
+        """
+        Method that fits the provided data to the current multipeak model.
+        Parameters
+        ----------
+        frequency : np.ndarray
+            The array of the frequency scan.
+        data : np.ndarray
+            The omdr data
+
+        Returns
+        -------
+        fit_results : ModelResult
+            The fit results from lmfit.fit().
+        model: Model
+            The multiLorentz lmfit.Model.
+        """
         self.parameters['intensity'].value = data.mean()
         if self.freq_guess is None:
             self.peak_autofinder(frequency, data)
