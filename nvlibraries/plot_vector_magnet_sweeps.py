@@ -13,6 +13,7 @@ import sys
 sys.path.append(r"C:\Users\QMPL\Documents\GitHub\NVfunctions")
 from nv_functions import fit_nv_angle, angle_dependent_splitting
 
+
 def read_h5(path):
     with h5py.File(path, "r") as f:
         axis = f["odmr/frequency_axis"][:]
@@ -80,7 +81,9 @@ df_azimuthal = pd.read_csv(f"{path_azimuthal}/azimuthal_sweep.txt")
 polar_arr = read_angles(df_polar, path_polar, "polar angle [deg]")
 azi_arr = read_angles(df_azimuthal, path_azimuthal, "azimuthal_angle [deg]")
 
-fixed_theta = np.deg2rad(90)  # The value for the polar angle that is kept constant during the azimuthal sweep
+fixed_theta = np.deg2rad(
+    90
+)  # The value for the polar angle that is kept constant during the azimuthal sweep
 fixed_phi = np.deg2rad(91.4)  # Vice versa
 Esplit = 3.03e6  # Measured as the zero field splitting
 
@@ -100,7 +103,9 @@ print(f"Polar Angle: {np.rad2deg(NVtheta)}")
 print(f"Azimuthal Angle: {np.rad2deg(NVphi)}")
 
 fit_angles = np.linspace(0, np.pi)
-azi_fit_result = use_fit_results(Btheta=fixed_theta, Bphi=fit_angles, Esplit=Esplit, fit_pars=fit_pars)
+azi_fit_result = use_fit_results(
+    Btheta=fixed_theta, Bphi=fit_angles, Esplit=Esplit, fit_pars=fit_pars
+)
 fig, ax = plt.subplots()
 ax.scatter(
     np.rad2deg(azi_arr[:, 0]), azi_arr[:, 1] * 1e-6, marker="x",
@@ -115,7 +120,9 @@ ax.set_xlabel("Azimuthal Angle [deg]")
 ax.set_title("Azimuthal Sweep")
 plt.show()
 
-polar_fit_result = use_fit_results(Btheta=fit_angles, Bphi=fixed_phi, Esplit=Esplit, fit_pars=fit_pars)
+polar_fit_result = use_fit_results(
+    Btheta=fit_angles, Bphi=fixed_phi, Esplit=Esplit, fit_pars=fit_pars
+)
 fig, ax = plt.subplots()
 ax.scatter(np.rad2deg(polar_arr[:, 0]), polar_arr[:, 1] * 1e-6, marker="x")
 ax.plot(np.rad2deg(fit_angles), polar_fit_result * 1e-6, color="orange", linestyle="--")
