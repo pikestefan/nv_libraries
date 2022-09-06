@@ -18,6 +18,7 @@ import scipy.fftpack as fft
 from lmfit import Model, Parameters
 
 mu0 = const.mu_0
+mu02pi = mu0 / (2*pi)
 g_fact,_,_ = const.physical_constants['electron g factor']
 g_fact = abs(g_fact)
 bohr_mag,_,_ = const.physical_constants["Bohr magneton"]
@@ -283,17 +284,6 @@ class odmr_fitter(object):
         - smoothed data: an array of smoothed data, to help improve peak the autofinding                 
         - gtol of scipy.optimize.curve_fit
         - max_nfev
-        - 
-        
-    Returns:
-        - optimal parameters
-        - covariance matrix
-        - an array of the fitted data
-        - fail fit flag
-        - the guessed frequencies
-        
-        
-    If the fitting fails, it returns a NaN
     """
     def __init__(self, dip_number, freq_guess=None, contrast_guess=None, linewidth_guess=None, **kwargs):
         self.dip_number = dip_number
@@ -339,7 +329,7 @@ class odmr_fitter(object):
             self.parameters[prefix + 'f0'].min = 0
             self.parameters[prefix + 'f0'].value = 2.87e9
             self.parameters[prefix + 'width'].min = 0
-            self.parameters[prefix + 'width'].value = 1e6
+            self.parameters[prefix + 'width'].value = 0.5e6
             self.parameters[prefix + 'contrast'].min = 0
             self.parameters[prefix + 'contrast'].max = 1
             self.parameters[prefix + 'contrast'].value = 0.1
@@ -440,101 +430,102 @@ class odmr_fitter(object):
                                       max_nfev=self.max_nfev)
         return fit_results, self._model
     
-def multi_lorentz( f, params, dip_number = 2):
-    np_params = np.array(params)
-    f0 = np_params[0:dip_number]
-    widths = np_params[dip_number: 2 * dip_number]
-    amps = np_params[2 * dip_number: 3 * dip_number]
-    intensity = np_params[-1]
-    
-    lorentz_line =  ( amps[:, None] *
-                     np.square(widths[:,None]) / 
-                     ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
-    lorentz_line = intensity *(1 - np.sum(lorentz_line, axis = 0) )
-    return  lorentz_line
-    
-def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = None,
-             linewid_guess = None, bounds = None, **kwargs ):
-    """
-    Fits an arbitrary number of odmr dips. If freq_guess is not specified it will do an automatic dip search based on
-    scipy.signal.find_peaks. 
-    Order of the data is:
-        [freq_1,...,freq_N, width_1,...,width_N ,amp_1,...,amp_N, max_intensity]
-    Optional kwargs are:
-        - smoothed data: an array of smoothed data, to help improve peak finding
-        - index_parameter: value which is printed in the error message when the fit fails
-                            (useful when the fit is in a loop)                  
-        - all the keyword arguments of scipy.signal.find_peaks
-        - gtol of scipy.optimize.curve_fit
-        - max_nfev of gtol of scipy.optimize.curve_fit
-        
-    Returns:
-        - optimal parameters
-        - covariance matrix
-        - an array of the fitted data
-        - fail fit flag
-        - the guessed frequencies
-        
-        
-    If the fitting fails, it returns a NaN
-    """
-    smoothed_data = kwargs.get( 'smoothed_data', None )
-    maxfev =  kwargs.get( 'maxfev', 200 )
-    gtol = kwargs.get( 'gtol', 1e-8 )
-    index_parameter = kwargs.get( 'index_parameter', None )
-    show_guess = kwargs.get( 'show_guess', False)
-    
-    fail_fit_flag = 0
-    if smoothed_data is not None:
-        data_4_guess = smoothed_data
+def Bx_right_edge(xdata, topo, dist_nv, x_edge, Is):
+    return mu02pi * Is * (dist_nv + topo) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
+def Bz_edge(xdata, topo, dist_nv, x_edge, Is):
+    return mu02pi * Is * (xdata - x_edge) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )    
+
+def NV_on_edge(x_axis, topography_slice, x_edge, dist_nv, 
+               Esplit, NVtheta, NVphi, Bbias, Is, edge_side='right'):
+    if edge_side=='right':
+        sign_coeff = 1
     else:
-        data_4_guess = odmr_data
+        sign_coeff = -1
+    Bx_pr = (sign_coeff * Bx_right_edge(xdata= x_axis, topo = topography_slice, 
+                                 dist_nv = dist_nv, x_edge = x_edge, Is = Is)  
+                     * np.sin(NVtheta) * np.cos( NVphi ) )
+    Bz_pr = ( Bz_edge(xdata  = x_axis, topo = topography_slice, 
+                           dist_nv = dist_nv, x_edge = x_edge, Is = Is) *
+             np.cos(NVtheta) )
+    projection = Bx_pr + Bz_pr
+    
+    return 2 * np.sqrt( np.square(Esplit) +  np.square(gamma * (projection + Bbias )) )
+
+def mag_edge_fit(x_axis, data, topography_slice, 
+                 Esplit, NVtheta=None, NVphi=None, Bbias=0, edge_side='right',
+                 guesses = None):
+    """
+    Function that is used to fit the Zeeman **splitting** of a scan over the
+    edge of a uniformly magnetized strip. Uses NV_on_edge as fit model.
+    
+    Parameters
+    ----------
+    x_axis : np.ndarray
+        The axis with the coordinates of the line scan.
+    data : np.ndarray
+        The Zeeman splitting.
+    topography_slice : np.ndarray
+        The topography of the sample.
+    Esplit : float
+        The NV strain splitting.
+    NVtheta : float, optional
+        The polar angle of the NV. If not given, it is used as a free parameter
+        in the fit.
+    NVphi : float, optional
+        The azimuthal angle of the NV. If not given, it is used as a free parameter
+        in the fit.
+    Bbias : float, optional
+        The Bias field along the NV axis. The default is 0. If set as None,
+        it is used as a free parameter of the fit.
+    edge_side : str, optional
+        The edge of the strip, which is either left or right. The default is 'right'.
+    guesses : dict, optional
+        A dictionary containing the guesses for the parameters, which are found
+        in the NV_on_edge function. The default is None.
+
+    Returns
+    -------
+    fit_results : ModelResult
+        The output of the fit.
+
+    """
+    independent_vars = ["x_axis", "edge_side", "topography_slice", "Esplit"]
+    
+    fit_kwargs = {}
+    if NVtheta is not None:
+        independent_vars.append("NVtheta")
+        fit_kwargs["NVtheta"] = NVtheta
+    if NVphi is not None:
+        independent_vars.append("NVphi")
+        fit_kwargs["NVphi"] = NVphi
+    if Bbias is not None:
+        independent_vars.append("Bbias")
+        fit_kwargs["Bbias"] = Bbias
+    
+    model = Model(NV_on_edge, independent_vars = independent_vars)
+    parameters = model.make_params()
+    parameters['Is'].min = 0
+    parameters['x_edge'].min = x_axis[0]
+    parameters['x_edge'].max = x_axis[-1]
+    parameters['dist_nv'].min = 0
+    if "NVtheta" in parameters:
+        parameters["NVtheta"].min = -pi
+        parameters["NVtheta"].max = pi
+    if "NVphi" in parameters:
+        parameters["NVphi"].min = 0
+        parameters["NVphi"].max = 2*pi
+    if "Bbias" in parameters:
+        parameters["Bbias"].min = 0
         
-    if freq_guess is None:
-        height = kwargs.get( 'height', None )
-        threshold = kwargs.get( 'threshold', None )
-        distance = kwargs.get( 'distance', None )
-        prominence = kwargs.get( 'prominence', None )
-        width = kwargs.get( 'width', None )
-        wlen = kwargs.get( 'wlen', None )
-        rel_height = kwargs.get( 'rel_height', 0.5 )
-        
-        found_pks, _ = sci_sig.find_peaks( 1 - data_4_guess / data_4_guess.mean(),
-                                          height = height, threshold = threshold, distance = distance, prominence = prominence, 
-                                          width = width, wlen = wlen, rel_height = rel_height)
-        if len( found_pks ) < dip_number:
-            print(found_pks)
-            raise( Exception( "Found dips are less than the input dip number." ) )
-        max_amps = data_4_guess[found_pks]
-        #sorted_amps = max_amps.sort()
-        #print(max_amps.sort())
-        found_pks = found_pks[max_amps.argsort()]
-        freq_guess = freqs[ found_pks[0:dip_number] ]
-        
-    if amp_guess is None:
-        amp_guess = 0.1 * np.ones( (dip_number,)  )
-    if linewid_guess is None:
-        linewid_guess = 1e6 * np.ones( (dip_number,)  )
+    for parameter, guess_value in guesses.items():
+        parameters[parameter].value = guess_value
     
-    fit_func = lambda x, *pars: multi_lorentz(x, pars, dip_number = dip_number)
-    
-    init_guesses = np.concatenate( (freq_guess, linewid_guess, amp_guess, [odmr_data.mean()]) )
-    
-    if bounds is None:
-        bounds = ( 0, np.inf * np.ones( (len(init_guesses, )) ) )
-    try:
-        opt_pars, cov_mat = sci_opt.curve_fit( fit_func, freqs, odmr_data, p0 = init_guesses,
-                                               bounds = bounds, maxfev = maxfev,
-                                               gtol = gtol)
-        fitted_data = multi_lorentz( freqs, opt_pars, dip_number = dip_number )
-    except:
-        opt_pars = np.repeat(np.nan, len(init_guesses))
-        cov_mat = np.full((len(init_guesses), len(init_guesses)), np.nan)
-        fitted_data = np.repeat(np.nan, len(freqs))
-        fail_fit_flag = 1
-        print("Failed: fit did not converge. Position is: {}".format(index_parameter) )
-    
-    return opt_pars, cov_mat, fit_func, fail_fit_flag, freq_guess
+    fit_results = model.fit(data, params=parameters, x_axis=x_axis,
+                            topography_slice=topography_slice,
+                            Esplit=Esplit,
+                            edge_side=edge_side, 
+                            **fit_kwargs )
+    return fit_results
 
             
 def check_neighbour_pixel(input_matrix, index_tuple, neighbours = 1,  empty_value = np.nan):
@@ -654,137 +645,6 @@ def fit_nv_angle( phi_sweep_and_split = None, theta_sweep_and_split = None, Bnor
     
     fitted_data = error_func(fit_pars, full_data[:,0], full_data[:,1]) + full_data[:,1]
     return fit_pars, fitted_data[0:phi_rows], fitted_data[phi_rows:]
-
-def _edge_field(x_axis = None, topography = None, x_edge = 0, dist_nv = 1, Is = 1):
-    """
-    Stray field of a strip with PMA.
-    
-    Parameters
-    ----------
-    x_axis: np.array
-        The array containing the x coordinates
-    topography: np.array, optional
-        The array containing the topography of the strip. Default is an array
-        of zeros. It must have the same shape of x_axis.
-    x_edge: float
-        The position of the edge. Default is 0.
-    dist_nv: float
-        The distance between sample surface and probing height. If topography
-        is non-zero, dist_nv is a constant added to the topography. Default is 0.
-    Is: float
-        The saturation magnetisation of the strip
-    
-    Returns
-    -------
-    Bfield_array: np.ndarray
-        2D array, with shape (len(x_array), 2). The first column contains the 
-        x-component of the stray field, the second the z-component
-    """
-    mu02pi = const.mu_0 / (np.pi * 2)
-    
-    bx = -mu02pi * Is * (dist_nv + topography) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
-    
-    bz = mu02pi * Is * (x_axis - x_edge) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
-    
-    return np.vstack( (bx, bz) ).T
-    
-
-def fit_esr_edge_signal( x_axis = None, topography_slice = None, ESR_slice = None,
-                         Dsplit = None, Esplit = None, NVtheta = None, NVphi = None, Bbias = 0,
-                         *args, **kwargs ):
-    """ 
-    Fits the ESR ***splitting*** to an edge with  PMA.
-    Fit inital guesses must be ordered as:
-        -[nv2sample distance, position of edge (of the magnetic signal), surface saturation magnetisation]
-    To fit a left-side edge or a right-side edge, just change the sat. magnetisation sign guess!
-    Inputs:
-        -x_axis: the x coordinates
-        -topography_slice: the topography data
-        -ESR_slice: the ESR data
-        -Dsplit: the zero field splitting
-        -Esplit: the strain splitting
-        -NVtheta: the NV azimuthal angle
-        -NVphi: the NV equatorial angle
-        -Bbias: fixed parameter (i.e. not fed into the fit), to specify an
-                on-axis bias field
-        *args and **kwargs are passed to curve_fit (from scipy.optimize)
-    Outputs:
-        tuple: (fit output parameters, covariance matrix, array containing the fitting line)
-        the output parameters are ordered as:
-            [nv2sample distance, position of edge (of the magnetic signal), surface saturation magnetisation]
-    """
-    
-    mu02pi = const.mu_0 / (np.pi * 2)
-    
-    def Bx_left_edge(xdata, topo, dist_nv, x_edge, Is):
-        return -mu02pi * Is * (dist_nv + topo) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
-    def Bz_left_edge(xdata, topo, dist_nv, x_edge, Is):
-        return mu02pi * Is * (xdata - x_edge) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
-    
-    def edge_signal( x_axis, dist_nv, x_edge, Is ):
-        Bx_pr = ( Bx_left_edge(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv, x_edge = x_edge, Is = Is)  * 
-                 np.sin(NVtheta) * np.cos( NVphi ) )
-        Bz_pr = ( Bz_left_edge(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv, x_edge = x_edge, Is = Is) *
-                 np.cos(NVtheta) )
-        projection = Bx_pr + Bz_pr
-        return 2 * np.sqrt( np.square(Esplit) +  np.square(gamma * (projection + Bbias )) )
-    
-    opt_pars, cov_mat = sci_opt.curve_fit(edge_signal, x_axis, ESR_slice, *args, **kwargs)
-    fitted_data = edge_signal( x_axis, opt_pars[0], opt_pars[1], opt_pars[2] )
-    return opt_pars, cov_mat, fitted_data
-    
-def fit_esr_strip_signal( x_axis = None, topography_slice = None, ESR_slice = None,
-                         Dsplit = None, Esplit = None, NVtheta = None, NVphi = None, Bbias = 0,
-                         *args, **kwargs ):
-    """ 
-    Fits the ESR ***splitting*** to a strip with  PMA.
-    Fit inital guesses must be ordered as:
-        -[nv2sample distance, position of left edge (of the magnetic signal),
-        position of right edge (of the magnetic signal), surface saturation magnetisation]
-    Inputs:
-        -x_axis: the x coordinates
-        -topography_slice: the topography data
-        -ESR_slice: the ESR data
-        -Dsplit: the zero field splitting
-        -Esplit: the strain splitting
-        -NVtheta: the NV azimuthal angle
-        -NVphi: the NV equatorial angle
-        -Bbias: fixed parameter (i.e. not fed into the fit), to specify an
-                on-axis bias field
-        *args and **kwargs are passed to curve_fit (from scipy.optimize)
-    Outputs:
-        tuple: (fit output parameters, covariance matrix, array containing the fitting line)
-        the output parameters are ordered as:
-            [nv2sample distance, position of edge (of the magnetic signal), 
-            position of right edge (of the magnetic signal), surface saturation magnetisation]
-    """
-    
-    mu02pi = const.mu_0 / (np.pi * 2)
-    
-    def Bx_edge(xdata, topo, dist_nv, x_edge, Is):
-        return -mu02pi * Is * (dist_nv + topo) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
-    def Bz_edge(xdata, topo, dist_nv, x_edge, Is):
-        return mu02pi * Is * (xdata - x_edge) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
-    
-    def Bx_strip(xdata, topo, dist_nv, x_edge_l, x_edge_r, Is):
-        return Bx_edge(xdata, topo, dist_nv, x_edge_l, Is) - Bx_edge(xdata, topo, dist_nv, x_edge_r, Is)
-    def Bz_strip(xdata, topo, dist_nv, x_edge_l, x_edge_r, Is):
-        return Bz_edge(xdata, topo, dist_nv, x_edge_l, Is) - Bz_edge(xdata, topo, dist_nv, x_edge_r, Is)
-     
-    
-    def strip_signal( x_axis, dist_nv, x_edge_l, x_edge_r, Is ):
-        Bx_pr = ( Bx_strip(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv,
-                           x_edge_l = x_edge_l, x_edge_r = x_edge_r, Is = Is)  * 
-                 np.sin(NVtheta) * np.cos( NVphi ) )
-        Bz_pr = ( Bz_strip(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv,
-                           x_edge_l = x_edge_l, x_edge_r = x_edge_r, Is = Is) *
-                 np.cos(NVtheta) )
-        projection = Bx_pr + Bz_pr
-        return 2 * np.sqrt( np.square(Esplit) +  np.square(gamma * (projection + Bbias )) )
-    
-    opt_pars, cov_mat = sci_opt.curve_fit(strip_signal, x_axis, ESR_slice, *args, **kwargs)
-    fitted_data = strip_signal( x_axis, opt_pars[0], opt_pars[1], opt_pars[2], opt_pars[3] )
-    return opt_pars, cov_mat, fitted_data
 
 def mag_components_from_resonances(nu_minus_mat = None, nu_plus_mat = None, Dsplit = 2.87e9, Esplit = 0):
     """
@@ -1036,7 +896,235 @@ def Bfield_fromM_realspace(Mx = None, My = None, Mz = None, X_array = None, Y_ar
     Bz=sci_sig.convolve2d(kerXY,dxMx)+sci_sig.convolve2d(kerXY,dyMy)+sci_sig.convolve2d(kerXY,ddMz)
     B=np.array([Bx,By,Bz])
     return B
-                          
+
+
+# def multi_lorentz( f, params, dip_number = 2):
+#     np_params = np.array(params)
+#     f0 = np_params[0:dip_number]
+#     widths = np_params[dip_number: 2 * dip_number]
+#     amps = np_params[2 * dip_number: 3 * dip_number]
+#     intensity = np_params[-1]
+    
+#     lorentz_line =  ( amps[:, None] *
+#                      np.square(widths[:,None]) / 
+#                      ( np.square(f - f0[:,None]) + np.square(widths[:,None]) ) )
+#     lorentz_line = intensity *(1 - np.sum(lorentz_line, axis = 0) )
+#     return  lorentz_line
+  
+# def odmr_fit( freqs, odmr_data, dip_number = 2, freq_guess = None, amp_guess = None,
+#              linewid_guess = None, bounds = None, **kwargs ):
+#     """
+#     Fits an arbitrary number of odmr dips. If freq_guess is not specified it will do an automatic dip search based on
+#     scipy.signal.find_peaks. 
+#     Order of the data is:
+#         [freq_1,...,freq_N, width_1,...,width_N ,amp_1,...,amp_N, max_intensity]
+#     Optional kwargs are:
+#         - smoothed data: an array of smoothed data, to help improve peak finding
+#         - index_parameter: value which is printed in the error message when the fit fails
+#                             (useful when the fit is in a loop)                  
+#         - all the keyword arguments of scipy.signal.find_peaks
+#         - gtol of scipy.optimize.curve_fit
+#         - max_nfev of gtol of scipy.optimize.curve_fit
+        
+#     Returns:
+#         - optimal parameters
+#         - covariance matrix
+#         - an array of the fitted data
+#         - fail fit flag
+#         - the guessed frequencies
+        
+        
+#     If the fitting fails, it returns a NaN
+#     """
+#     smoothed_data = kwargs.get( 'smoothed_data', None )
+#     maxfev =  kwargs.get( 'maxfev', 200 )
+#     gtol = kwargs.get( 'gtol', 1e-8 )
+#     index_parameter = kwargs.get( 'index_parameter', None )
+#     show_guess = kwargs.get( 'show_guess', False)
+    
+#     fail_fit_flag = 0
+#     if smoothed_data is not None:
+#         data_4_guess = smoothed_data
+#     else:
+#         data_4_guess = odmr_data
+        
+#     if freq_guess is None:
+#         height = kwargs.get( 'height', None )
+#         threshold = kwargs.get( 'threshold', None )
+#         distance = kwargs.get( 'distance', None )
+#         prominence = kwargs.get( 'prominence', None )
+#         width = kwargs.get( 'width', None )
+#         wlen = kwargs.get( 'wlen', None )
+#         rel_height = kwargs.get( 'rel_height', 0.5 )
+        
+#         found_pks, _ = sci_sig.find_peaks( 1 - data_4_guess / data_4_guess.mean(),
+#                                           height = height, threshold = threshold, distance = distance, prominence = prominence, 
+#                                           width = width, wlen = wlen, rel_height = rel_height)
+#         if len( found_pks ) < dip_number:
+#             print(found_pks)
+#             raise( Exception( "Found dips are less than the input dip number." ) )
+#         max_amps = data_4_guess[found_pks]
+#         #sorted_amps = max_amps.sort()
+#         #print(max_amps.sort())
+#         found_pks = found_pks[max_amps.argsort()]
+#         freq_guess = freqs[ found_pks[0:dip_number] ]
+        
+#     if amp_guess is None:
+#         amp_guess = 0.1 * np.ones( (dip_number,)  )
+#     if linewid_guess is None:
+#         linewid_guess = 1e6 * np.ones( (dip_number,)  )
+    
+#     fit_func = lambda x, *pars: multi_lorentz(x, pars, dip_number = dip_number)
+    
+#     init_guesses = np.concatenate( (freq_guess, linewid_guess, amp_guess, [odmr_data.mean()]) )
+    
+#     if bounds is None:
+#         bounds = ( 0, np.inf * np.ones( (len(init_guesses, )) ) )
+#     try:
+#         opt_pars, cov_mat = sci_opt.curve_fit( fit_func, freqs, odmr_data, p0 = init_guesses,
+#                                                bounds = bounds, maxfev = maxfev,
+#                                                gtol = gtol)
+#         fitted_data = multi_lorentz( freqs, opt_pars, dip_number = dip_number )
+#     except:
+#         opt_pars = np.repeat(np.nan, len(init_guesses))
+#         cov_mat = np.full((len(init_guesses), len(init_guesses)), np.nan)
+#         fitted_data = np.repeat(np.nan, len(freqs))
+#         fail_fit_flag = 1
+#         print("Failed: fit did not converge. Position is: {}".format(index_parameter) )
+    
+#     return opt_pars, cov_mat, fit_func, fail_fit_flag, freq_guess
+
+# def _edge_field(x_axis = None, topography = None, x_edge = 0, dist_nv = 1, Is = 1):
+#     """
+#     Stray field of a strip with PMA.
+    
+#     Parameters
+#     ----------
+#     x_axis: np.array
+#         The array containing the x coordinates
+#     topography: np.array, optional
+#         The array containing the topography of the strip. Default is an array
+#         of zeros. It must have the same shape of x_axis.
+#     x_edge: float
+#         The position of the edge. Default is 0.
+#     dist_nv: float
+#         The distance between sample surface and probing height. If topography
+#         is non-zero, dist_nv is a constant added to the topography. Default is 0.
+#     Is: float
+#         The saturation magnetisation of the strip
+    
+#     Returns
+#     -------
+#     Bfield_array: np.ndarray
+#         2D array, with shape (len(x_array), 2). The first column contains the 
+#         x-component of the stray field, the second the z-component
+#     """
+#     mu02pi = const.mu_0 / (np.pi * 2)
+    
+#     bx = -mu02pi * Is * (dist_nv + topography) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
+    
+#     bz = mu02pi * Is * (x_axis - x_edge) / ( np.square(x_axis - x_edge) + np.square(dist_nv + topography) )
+    
+#     return np.vstack( (bx, bz) ).T
+    
+
+# def fit_esr_edge_signal( x_axis = None, topography_slice = None, ESR_slice = None,
+#                          Dsplit = None, Esplit = None, NVtheta = None, NVphi = None, Bbias = 0,
+#                          *args, **kwargs ):
+#     """ 
+#     Fits the ESR ***splitting*** to an edge with  PMA.
+#     Fit inital guesses must be ordered as:
+#         -[nv2sample distance, position of edge (of the magnetic signal), surface saturation magnetisation]
+#     To fit a left-side edge or a right-side edge, just change the sat. magnetisation sign guess!
+#     Inputs:
+#         -x_axis: the x coordinates
+#         -topography_slice: the topography data
+#         -ESR_slice: the ESR data
+#         -Dsplit: the zero field splitting
+#         -Esplit: the strain splitting
+#         -NVtheta: the NV azimuthal angle
+#         -NVphi: the NV equatorial angle
+#         -Bbias: fixed parameter (i.e. not fed into the fit), to specify an
+#                 on-axis bias field
+#         *args and **kwargs are passed to curve_fit (from scipy.optimize)
+#     Outputs:
+#         tuple: (fit output parameters, covariance matrix, array containing the fitting line)
+#         the output parameters are ordered as:
+#             [nv2sample distance, position of edge (of the magnetic signal), surface saturation magnetisation]
+#     """
+    
+#     mu02pi = const.mu_0 / (np.pi * 2)
+    
+#     def Bx_left_edge(xdata, topo, dist_nv, x_edge, Is):
+#         return -mu02pi * Is * (dist_nv + topo) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
+#     def Bz_left_edge(xdata, topo, dist_nv, x_edge, Is):
+#         return mu02pi * Is * (xdata - x_edge) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
+    
+#     def edge_signal( x_axis, dist_nv, x_edge, Is ):
+#         Bx_pr = ( Bx_left_edge(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv, x_edge = x_edge, Is = Is)  * 
+#                  np.sin(NVtheta) * np.cos( NVphi ) )
+#         Bz_pr = ( Bz_left_edge(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv, x_edge = x_edge, Is = Is) *
+#                  np.cos(NVtheta) )
+#         projection = Bx_pr + Bz_pr
+#         return 2 * np.sqrt( np.square(Esplit) +  np.square(gamma * (projection + Bbias )) )
+    
+#     opt_pars, cov_mat = sci_opt.curve_fit(edge_signal, x_axis, ESR_slice, *args, **kwargs)
+#     fitted_data = edge_signal( x_axis, opt_pars[0], opt_pars[1], opt_pars[2] )
+#     return opt_pars, cov_mat, fitted_data
+    
+# def fit_esr_strip_signal( x_axis = None, topography_slice = None, ESR_slice = None,
+#                          Dsplit = None, Esplit = None, NVtheta = None, NVphi = None, Bbias = 0,
+#                          *args, **kwargs ):
+#     """ 
+#     Fits the ESR ***splitting*** to a strip with  PMA.
+#     Fit inital guesses must be ordered as:
+#         -[nv2sample distance, position of left edge (of the magnetic signal),
+#         position of right edge (of the magnetic signal), surface saturation magnetisation]
+#     Inputs:
+#         -x_axis: the x coordinates
+#         -topography_slice: the topography data
+#         -ESR_slice: the ESR data
+#         -Dsplit: the zero field splitting
+#         -Esplit: the strain splitting
+#         -NVtheta: the NV azimuthal angle
+#         -NVphi: the NV equatorial angle
+#         -Bbias: fixed parameter (i.e. not fed into the fit), to specify an
+#                 on-axis bias field
+#         *args and **kwargs are passed to curve_fit (from scipy.optimize)
+#     Outputs:
+#         tuple: (fit output parameters, covariance matrix, array containing the fitting line)
+#         the output parameters are ordered as:
+#             [nv2sample distance, position of edge (of the magnetic signal), 
+#             position of right edge (of the magnetic signal), surface saturation magnetisation]
+#     """
+    
+#     mu02pi = const.mu_0 / (np.pi * 2)
+    
+#     def Bx_edge(xdata, topo, dist_nv, x_edge, Is):
+#         return -mu02pi * Is * (dist_nv + topo) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
+#     def Bz_edge(xdata, topo, dist_nv, x_edge, Is):
+#         return mu02pi * Is * (xdata - x_edge) / ( np.square(xdata - x_edge) + np.square(dist_nv + topo) )
+    
+#     def Bx_strip(xdata, topo, dist_nv, x_edge_l, x_edge_r, Is):
+#         return Bx_edge(xdata, topo, dist_nv, x_edge_l, Is) - Bx_edge(xdata, topo, dist_nv, x_edge_r, Is)
+#     def Bz_strip(xdata, topo, dist_nv, x_edge_l, x_edge_r, Is):
+#         return Bz_edge(xdata, topo, dist_nv, x_edge_l, Is) - Bz_edge(xdata, topo, dist_nv, x_edge_r, Is)
+     
+    
+#     def strip_signal( x_axis, dist_nv, x_edge_l, x_edge_r, Is ):
+#         Bx_pr = ( Bx_strip(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv,
+#                            x_edge_l = x_edge_l, x_edge_r = x_edge_r, Is = Is)  * 
+#                  np.sin(NVtheta) * np.cos( NVphi ) )
+#         Bz_pr = ( Bz_strip(xdata  = x_axis, topo = topography_slice, dist_nv = dist_nv,
+#                            x_edge_l = x_edge_l, x_edge_r = x_edge_r, Is = Is) *
+#                  np.cos(NVtheta) )
+#         projection = Bx_pr + Bz_pr
+#         return 2 * np.sqrt( np.square(Esplit) +  np.square(gamma * (projection + Bbias )) )
+    
+#     opt_pars, cov_mat = sci_opt.curve_fit(strip_signal, x_axis, ESR_slice, *args, **kwargs)
+#     fitted_data = strip_signal( x_axis, opt_pars[0], opt_pars[1], opt_pars[2], opt_pars[3] )
+#     return opt_pars, cov_mat, fitted_data
+
 if __name__ == "__main__"   :
     #Code testing section!
     A = np.reshape(np.arange(0,25), (5,5))
