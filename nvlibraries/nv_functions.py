@@ -54,7 +54,6 @@ def polar_field(Bnorm, theta, phi):
         the_shape = theta.shape
     elif type(phi) is np.ndarray:
         the_shape = phi.shape
-
     return np.stack(
         (
             Bnorm * np.sin(theta) * np.cos(phi),
@@ -81,7 +80,6 @@ def strayB_on_NV_components(Bfields, nv_theta, nv_phi):
         for ii in range(0, len(input_shape) - 1):
             bfield_num = bfield_num * input_shape[ii]
         Bfields = np.reshape(Bfields, (bfield_num, 3))
-
     Nvx, Nvy, Nvz = [
         np.sin(nv_theta) * np.cos(nv_phi),
         np.sin(nv_theta) * np.sin(nv_phi),
@@ -132,7 +130,6 @@ def vectorised_eigenvalue_solver(
         for ii in range(0, len(input_shape) - 1):
             bfield_num = bfield_num * input_shape[ii]
         Bfields = np.reshape(Bfields, (bfield_num, 3))
-
     NV_axis = np.array(
         [
             np.sin(nv_theta) * np.cos(nv_phi),
@@ -212,7 +209,6 @@ def isoB_simulator(
             shape_prod *= shape_el
     else:
         raise (Exception("Input resonances shapes must match"))
-
     f1 = np.reshape(freq1_ndarray, shape_prod)
     f2 = np.reshape(freq2_ndarray, shape_prod)
 
@@ -273,15 +269,12 @@ def nv_eigenfrequencies_analytical(
     if angles_are_deg:
         Btheta = Btheta * np.pi / 180.0
         Bphi = Bphi * np.pi / 180.0
-
     if freqs_are_GHz:
         if Dsplit == 2.87e9:
             Dsplit = 2.87
         gamma_ratio = gamma_ratio * 1e-9
-
     if fields_are_mT:
         gamma_ratio = gamma_ratio * 1e-3
-
     B = gamma_ratio * Bnorm
 
     secular_const = (
@@ -353,10 +346,10 @@ class odmr_fitter(object):
         self.freq_guess = freq_guess
         self.contrast_guess = contrast_guess
         self.linewidth_guess = linewidth_guess
-        self.smoothed_data = kwargs.get("smoothed_data", None)
-        self.max_nfev = kwargs.get("max_nfev", 10000)
-        self.index_parameter = kwargs.get("index_parameter", None)
-        self.bounds = kwargs.get("bounds", None)
+        self.smoothed_data = kwargs.pop("smoothed_data", None)
+        self.max_nfev = kwargs.pop("max_nfev", 10000)
+        self.index_parameter = kwargs.pop("index_parameter", None)
+        self.bounds = kwargs.pop("bounds", None)
         self.kwargs = kwargs
 
         self.parameters = Parameters()
@@ -381,7 +374,6 @@ class odmr_fitter(object):
                 self._model = Model(single_lorentz, prefix=prefix)
             else:
                 self._model += Model(single_lorentz, prefix=prefix)
-
         self._model = Model(baseline) - Model(baseline, prefix="_") * self._model
 
         self.parameters = self._model.make_params()
@@ -465,7 +457,6 @@ class odmr_fitter(object):
             data_4_guess = self.smoothed_data
         else:
             data_4_guess = odmr_data
-
         height = self.kwargs.get("height", None)
         threshold = self.kwargs.get("threshold", None)
         distance = self.kwargs.get("distance", None)
@@ -625,7 +616,6 @@ def mag_edge_fit(
     if Bbias is not None:
         independent_vars.append("Bbias")
         fit_kwargs["Bbias"] = Bbias
-
     model = Model(NV_on_edge, independent_vars=independent_vars)
     parameters = model.make_params()
     parameters["Is"].min = 0
@@ -640,10 +630,8 @@ def mag_edge_fit(
         parameters["NVphi"].max = 2 * pi
     if "Bbias" in parameters:
         parameters["Bbias"].min = 0
-
     for parameter, guess_value in guesses.items():
         parameters[parameter].value = guess_value
-
     fit_results = model.fit(
         data,
         params=parameters,
@@ -1021,7 +1009,6 @@ def Bfield_fromM_fourier(
         z = np.array(z)
     elif isinstance(z, (int, float, complex)):
         z = np.array([z])
-
     kx = 2 * np.pi * fft.fftfreq(len(x_array), d=abs(x_array[1] - x_array[0]))
     ky = 2 * np.pi * fft.fftfreq(len(y_array), d=abs(y_array[1] - y_array[0]))
 
@@ -1053,7 +1040,6 @@ def Bfield_fromM_fourier(
 
     if len(z) == 1:
         bfield = bfield[0]
-
     return bfield
 
 
