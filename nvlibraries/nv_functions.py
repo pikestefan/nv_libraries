@@ -363,7 +363,7 @@ class odmr_fitter(object):
         if self.contrast_guess:
             self.set_contrast_guess(self.contrast_guess)
         if self.linewidth_guess:
-            self.set_linewidth_guess(self.contrast_guess)
+            self.set_linewidth_guess(self.linewidth_guess)
         if self.bounds is not None:
             self.set_bounds(self.bounds)
 
